@@ -1,0 +1,1015 @@
+{
+	"info": {
+		"_postman_id": "warotickets-api-collection",
+		"name": "WaRo Tickets API",
+		"description": "API para sistema de ticketera y venta de boletería para eventos",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "{{BASE_URL}}"
+		}
+	],
+	"item": [
+		{
+			"name": "🔐 Auth",
+			"item": [
+				{
+					"name": "Send Magic Link",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{USER_EMAIL}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/auth/sign-in-magic-link",
+							"host": ["{{BASE_URL}}"],
+							"path": ["auth", "sign-in-magic-link"]
+						},
+						"description": "Envía un código de 6 dígitos al email del usuario"
+					}
+				},
+				{
+					"name": "Verify Code",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{USER_EMAIL}}\",\n    \"code\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/auth/verify-code",
+							"host": ["{{BASE_URL}}"],
+							"path": ["auth", "verify-code"]
+						},
+						"description": "Verifica el código y crea sesión"
+					}
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/auth/me",
+							"host": ["{{BASE_URL}}"],
+							"path": ["auth", "me"]
+						},
+						"description": "Obtiene información del usuario autenticado"
+					}
+				},
+				{
+					"name": "Sign Out",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/auth/sign-out",
+							"host": ["{{BASE_URL}}"],
+							"path": ["auth", "sign-out"]
+						},
+						"description": "Cierra la sesión actual"
+					}
+				}
+			]
+		},
+		{
+			"name": "📁 Uploads",
+			"item": [
+				{
+					"name": "Upload Image",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/uploads/image",
+							"host": ["{{BASE_URL}}"],
+							"path": ["uploads", "image"]
+						},
+						"description": "Sube una imagen (max 5MB, JPEG/PNG/WebP/GIF)"
+					}
+				},
+				{
+					"name": "Get Presigned URL",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"filename\": \"event-cover.jpg\",\n    \"content_type\": \"image/jpeg\",\n    \"folder\": \"events\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/uploads/presigned-url",
+							"host": ["{{BASE_URL}}"],
+							"path": ["uploads", "presigned-url"]
+						}
+					}
+				},
+				{
+					"name": "Delete Image",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/uploads/{{IMAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["uploads", "{{IMAGE_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🎉 Events",
+			"item": [
+				{
+					"name": "List My Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/events?limit=20&offset=0",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events"],
+							"query": [
+								{"key": "limit", "value": "20"},
+								{"key": "offset", "value": "0"},
+								{"key": "is_active", "value": "true", "disabled": true}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Event by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events", "{{EVENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Create Event",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cluster_name\": \"Festival de Música 2025\",\n    \"description\": \"El mejor festival del año\",\n    \"start_date\": \"2025-06-15T18:00:00\",\n    \"end_date\": \"2025-06-15T23:59:00\",\n    \"cluster_type\": \"festival\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/events",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events"]
+						}
+					}
+				},
+				{
+					"name": "Update Event",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"Descripción actualizada\",\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events", "{{EVENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Event",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events", "{{EVENT_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🏟️ Areas",
+			"item": [
+				{
+					"name": "List Areas",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["areas", "event", "{{EVENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Area by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/areas/{{AREA_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["areas", "{{AREA_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Create Area",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"area_name\": \"VIP\",\n    \"description\": \"Zona VIP con acceso preferencial\",\n    \"capacity\": 100,\n    \"base_price\": 250000,\n    \"auto_generate_units\": true,\n    \"nomenclature_prefix\": \"VIP\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/areas",
+							"host": ["{{BASE_URL}}"],
+							"path": ["areas"]
+						}
+					}
+				},
+				{
+					"name": "Update Area",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"base_price\": 300000,\n    \"description\": \"Zona VIP Premium\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/areas/{{AREA_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["areas", "{{AREA_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Area",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/areas/{{AREA_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["areas", "{{AREA_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🎫 Units",
+			"item": [
+				{
+					"name": "List Units by Area",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/units/area/{{AREA_ID}}?status=available",
+							"host": ["{{BASE_URL}}"],
+							"path": ["units", "area", "{{AREA_ID}}"],
+							"query": [
+								{"key": "status", "value": "available", "disabled": true}
+							]
+						}
+					}
+				},
+				{
+					"name": "Create Units Bulk",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"quantity\": 50,\n    \"nomenclature_prefix\": \"A\",\n    \"start_number\": 1\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/units/bulk",
+							"host": ["{{BASE_URL}}"],
+							"path": ["units", "bulk"]
+						}
+					}
+				},
+				{
+					"name": "Update Units Bulk",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"unit_ids\": [1, 2, 3],\n    \"status\": \"available\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/units/bulk",
+							"host": ["{{BASE_URL}}"],
+							"path": ["units", "bulk"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "📊 Sale Stages",
+			"item": [
+				{
+					"name": "List Sale Stages",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "event", "{{EVENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Active Stage",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/active",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "event", "{{EVENT_ID}}", "active"]
+						}
+					}
+				},
+				{
+					"name": "Create Sale Stage",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"name\": \"Early Bird\",\n    \"adjustment_type\": \"percentage\",\n    \"adjustment_value\": -20,\n    \"start_date\": \"2025-01-01T00:00:00\",\n    \"end_date\": \"2025-03-31T23:59:59\",\n    \"priority\": 1\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages"]
+						}
+					}
+				},
+				{
+					"name": "Update Sale Stage",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"adjustment_value\": -25,\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/{{STAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "{{STAGE_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Sale Stage",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/{{STAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "{{STAGE_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🏷️ Promotions",
+			"item": [
+				{
+					"name": "List Promotions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "event", "{{EVENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Create Promotion",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"code\": \"DESCUENTO20\",\n    \"discount_type\": \"percentage\",\n    \"discount_value\": 20,\n    \"max_uses\": 100,\n    \"valid_from\": \"2025-01-01T00:00:00\",\n    \"valid_until\": \"2025-06-01T23:59:59\",\n    \"applies_to\": \"all\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions"]
+						}
+					}
+				},
+				{
+					"name": "Validate Promotion Code",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"code\": \"DESCUENTO20\",\n    \"cluster_id\": {{EVENT_ID}},\n    \"unit_ids\": [1, 2, 3]\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/validate",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "validate"]
+						}
+					}
+				},
+				{
+					"name": "Update Promotion",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"max_uses\": 200,\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/{{PROMOTION_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "{{PROMOTION_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Delete Promotion",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/{{PROMOTION_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "{{PROMOTION_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🛒 Reservations",
+			"item": [
+				{
+					"name": "Create Reservation",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"unit_ids\": [1, 2, 3],\n    \"promotion_code\": \"DESCUENTO20\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/reservations",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations"]
+						},
+						"description": "Crea una reserva con timeout de 15 minutos"
+					}
+				},
+				{
+					"name": "Get Reservation",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations", "{{RESERVATION_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Confirm Reservation",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"payment_reference\": \"wompi_transaction_id\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}/confirm",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations", "{{RESERVATION_ID}}", "confirm"]
+						}
+					}
+				},
+				{
+					"name": "Cancel Reservation",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}/cancel",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations", "{{RESERVATION_ID}}", "cancel"]
+						}
+					}
+				},
+				{
+					"name": "Get My Tickets",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/reservations/my-tickets",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations", "my-tickets"]
+						}
+					}
+				},
+				{
+					"name": "Get Ticket Detail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/reservations/ticket/{{RESERVATION_UNIT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations", "ticket", "{{RESERVATION_UNIT_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "💳 Payments",
+			"item": [
+				{
+					"name": "Create Payment Intent",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reservation_id\": {{RESERVATION_ID}},\n    \"payment_method\": \"card\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/payments/intent",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "intent"]
+						}
+					}
+				},
+				{
+					"name": "Get Payment Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/payments/{{PAYMENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "{{PAYMENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Wompi Webhook",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "X-Event-Checksum", "value": "{{WOMPI_CHECKSUM}}"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event\": \"transaction.updated\",\n    \"data\": {\n        \"transaction\": {\n            \"id\": \"xxxxx\",\n            \"status\": \"APPROVED\",\n            \"reference\": \"{{RESERVATION_ID}}\"\n        }\n    },\n    \"signature\": {\n        \"checksum\": \"{{WOMPI_CHECKSUM}}\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/payments/webhook/wompi",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "webhook", "wompi"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "📱 QR Codes",
+			"item": [
+				{
+					"name": "Get Ticket QR",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/qr/{{RESERVATION_UNIT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["qr", "{{RESERVATION_UNIT_ID}}"]
+						},
+						"description": "Obtiene QR code en base64"
+					}
+				},
+				{
+					"name": "Get Ticket QR Image",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/qr/{{RESERVATION_UNIT_ID}}/image",
+							"host": ["{{BASE_URL}}"],
+							"path": ["qr", "{{RESERVATION_UNIT_ID}}", "image"]
+						},
+						"description": "Obtiene QR code como imagen PNG"
+					}
+				},
+				{
+					"name": "Validate QR",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"qr_data\": \"WT:123|456|user-id|event-slug|timestamp|signature\",\n    \"event_slug\": \"festival-musica-2025\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/qr/validate",
+							"host": ["{{BASE_URL}}"],
+							"path": ["qr", "validate"]
+						},
+						"description": "Valida QR en entrada del evento"
+					}
+				},
+				{
+					"name": "Get Check-in Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/qr/stats/{{EVENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["qr", "stats", "{{EVENT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Reset Ticket Status",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/qr/reset/{{RESERVATION_UNIT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["qr", "reset", "{{RESERVATION_UNIT_ID}}"]
+						},
+						"description": "Resetea un ticket usado a confirmado (admin)"
+					}
+				}
+			]
+		},
+		{
+			"name": "🔄 Transfers",
+			"item": [
+				{
+					"name": "Initiate Transfer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reservation_unit_id\": {{RESERVATION_UNIT_ID}},\n    \"recipient_email\": \"friend@example.com\",\n    \"message\": \"¡Te regalo esta entrada!\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/transfers/initiate",
+							"host": ["{{BASE_URL}}"],
+							"path": ["transfers", "initiate"]
+						}
+					}
+				},
+				{
+					"name": "Accept Transfer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transfer_token\": \"{{TRANSFER_TOKEN}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/transfers/accept",
+							"host": ["{{BASE_URL}}"],
+							"path": ["transfers", "accept"]
+						}
+					}
+				},
+				{
+					"name": "Cancel Transfer",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/transfers/cancel/{{RESERVATION_UNIT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["transfers", "cancel", "{{RESERVATION_UNIT_ID}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Outgoing Transfers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/transfers/outgoing",
+							"host": ["{{BASE_URL}}"],
+							"path": ["transfers", "outgoing"]
+						}
+					}
+				},
+				{
+					"name": "Get Incoming Transfers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/transfers/incoming",
+							"host": ["{{BASE_URL}}"],
+							"path": ["transfers", "incoming"]
+						}
+					}
+				},
+				{
+					"name": "Get Transfer History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/transfers/history/{{RESERVATION_UNIT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["transfers", "history", "{{RESERVATION_UNIT_ID}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "📈 Dashboard",
+			"item": [
+				{
+					"name": "Get Overview",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/overview",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "overview"]
+						}
+					}
+				},
+				{
+					"name": "Get Event Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/events/{{EVENT_ID}}/summary",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "events", "{{EVENT_ID}}", "summary"]
+						}
+					}
+				},
+				{
+					"name": "Get Area Breakdown",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/events/{{EVENT_ID}}/areas",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "events", "{{EVENT_ID}}", "areas"]
+						}
+					}
+				},
+				{
+					"name": "Get Sales Chart",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/events/{{EVENT_ID}}/sales-chart?date_range=last_30_days",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "events", "{{EVENT_ID}}", "sales-chart"],
+							"query": [
+								{"key": "date_range", "value": "last_30_days"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Revenue Report",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/events/{{EVENT_ID}}/revenue",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "events", "{{EVENT_ID}}", "revenue"]
+						}
+					}
+				},
+				{
+					"name": "Get Check-in Analytics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/events/{{EVENT_ID}}/checkins",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "events", "{{EVENT_ID}}", "checkins"]
+						}
+					}
+				},
+				{
+					"name": "Get Attendees List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/dashboard/events/{{EVENT_ID}}/attendees?limit=100&offset=0",
+							"host": ["{{BASE_URL}}"],
+							"path": ["dashboard", "events", "{{EVENT_ID}}", "attendees"],
+							"query": [
+								{"key": "limit", "value": "100"},
+								{"key": "offset", "value": "0"},
+								{"key": "status", "value": "confirmed", "disabled": true}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🌐 Public",
+			"item": [
+				{
+					"name": "List Public Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/public/events?limit=20",
+							"host": ["{{BASE_URL}}"],
+							"path": ["public", "events"],
+							"query": [
+								{"key": "limit", "value": "20"},
+								{"key": "event_type", "value": "festival", "disabled": true}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Event by Slug",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/public/events/{{EVENT_SLUG}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["public", "events", "{{EVENT_SLUG}}"]
+						}
+					}
+				},
+				{
+					"name": "Get Event Availability",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/public/events/{{EVENT_SLUG}}/availability",
+							"host": ["{{BASE_URL}}"],
+							"path": ["public", "events", "{{EVENT_SLUG}}", "availability"]
+						}
+					}
+				},
+				{
+					"name": "Calculate Price",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"unit_ids\": [1, 2, 3],\n    \"promotion_code\": \"DESCUENTO20\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/public/calculate-price",
+							"host": ["{{BASE_URL}}"],
+							"path": ["public", "calculate-price"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "🏥 Health",
+			"item": [
+				{
+					"name": "Root",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/",
+							"host": ["{{BASE_URL}}"],
+							"path": [""]
+						}
+					}
+				},
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/health",
+							"host": ["{{BASE_URL}}"],
+							"path": ["health"]
+						}
+					}
+				}
+			]
+		}
+	]
+}
