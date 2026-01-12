@@ -1,31 +1,48 @@
+"""
+Payments Service - Gateway Agnostic Implementation
+
+Supports multiple payment gateways:
+- Bold (bold.co)
+- Wompi (wompi.co)
+- MercadoPago (coming soon)
+"""
+import json
 import logging
-import hashlib
-import hmac
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
+
 from app.database import get_db_connection
 from app.config import settings
 from app.models.payment import (
     Payment, PaymentCreate, PaymentSummary,
-    PaymentIntentResponse, PaymentConfirmation,
-    WompiWebhookEvent, WompiTransactionStatus
+    PaymentIntentResponse, PaymentConfirmation
 )
 from app.services import reservations_service
+from app.services.gateways import get_gateway
+from app.services.gateways.base import PaymentData, PaymentStatus
 from app.core.exceptions import PaymentError, ValidationError
 
 logger = logging.getLogger(__name__)
 
+# Reservation timeout in minutes
+PAYMENT_TIMEOUT_MINUTES = 15
 
-async def create_payment_intent(user_id: str, data: PaymentCreate) -> PaymentIntentResponse:
-    """Create a payment intent for a reservation"""
+
+async def create_payment_intent(data: PaymentCreate) -> PaymentIntentResponse:
+    """
+    Create a payment intent using the specified gateway.
+
+    This is a public endpoint - no authentication required.
+    The reservation must exist and be in 'pending' status.
+    """
     async with get_db_connection() as conn:
-        # Get reservation and verify ownership
+        # Get reservation (no user verification - public endpoint)
         reservation = await conn.fetchrow("""
             SELECT r.id, r.status, r.user_id
             FROM reservations r
-            WHERE r.id = $1 AND r.user_id = $2
-        """, data.reservation_id, user_id)
+            WHERE r.id = $1
+        """, data.reservation_id)
 
         if not reservation:
             raise ValidationError("Reservation not found")
@@ -33,86 +50,143 @@ async def create_payment_intent(user_id: str, data: PaymentCreate) -> PaymentInt
         if reservation['status'] != 'pending':
             raise ValidationError(f"Cannot pay for reservation with status: {reservation['status']}")
 
-        # Calculate total amount
+        # Check for existing pending payment
+        existing_payment = await conn.fetchrow("""
+            SELECT id, gateway_name, checkout_url, reference, gateway_order_id
+            FROM payments
+            WHERE reservation_id = $1 AND status = 'pending'
+            ORDER BY payment_date DESC
+            LIMIT 1
+        """, data.reservation_id)
+
+        # If there's an existing pending payment for same gateway, return it
+        if existing_payment and existing_payment['gateway_name'] == data.gateway.value:
+            # Get payment details
+            payment = await conn.fetchrow("SELECT * FROM payments WHERE id = $1", existing_payment['id'])
+            return PaymentIntentResponse(
+                payment_id=payment['id'],
+                reservation_id=data.reservation_id,
+                gateway=payment['gateway_name'],
+                amount=payment['amount'],
+                amount_in_cents=payment['amount_in_cents'],
+                currency=payment['currency'],
+                reference=payment['reference'],
+                checkout_url=existing_payment['checkout_url'],
+                gateway_order_id=existing_payment['gateway_order_id'],
+                expires_at=payment['payment_date'] + timedelta(minutes=PAYMENT_TIMEOUT_MINUTES)
+            )
+
+        # Calculate total amount from reservation units
         total = await conn.fetchval("""
             SELECT COALESCE(SUM(a.price), 0)
             FROM reservation_units ru
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
-            WHERE ru.reservation_id = $1
+            WHERE ru.reservation_id = $1 AND ru.status = 'reserved'
         """, data.reservation_id)
+
+        if not total or total <= 0:
+            raise ValidationError("No valid units in reservation")
 
         amount = Decimal(str(total))
         amount_in_cents = int(amount * 100)
 
         # Generate unique reference
-        reference = f"WT-{data.reservation_id[:8]}-{int(datetime.now().timestamp())}"
+        timestamp = int(datetime.now().timestamp())
+        reference = f"WT-{data.reservation_id[:8]}-{timestamp}"
 
-        # Create payment record
+        # Get gateway instance
+        gateway = get_gateway(data.gateway.value)
+
+        # Build payment data for gateway
+        payment_data = PaymentData(
+            reference=reference,
+            amount=amount,
+            currency="COP",
+            customer_email=data.customer_email,
+            customer_name=data.customer_name,
+            customer_phone=data.customer_phone,
+            description=f"WaRo Tickets - Reserva {data.reservation_id[:8]}",
+            return_url=data.return_url or f"{settings.frontend_url}/checkout/result",
+            webhook_url=f"{settings.base_url}/payments/webhooks/{gateway.name}",
+        )
+
+        # Create payment intent with gateway
+        try:
+            intent = await gateway.create_payment_intent(payment_data)
+        except Exception as e:
+            logger.error(f"Gateway {gateway.name} error: {e}")
+            raise PaymentError(f"Failed to create payment: {str(e)}")
+
+        # Store payment record
         payment_row = await conn.fetchrow("""
             INSERT INTO payments (
                 reservation_id, payment_date, amount, currency,
-                status, amount_in_cents, payment_method_type,
-                customer_email, customer_data, billing_data,
-                reference, environment, updated_at
+                status, amount_in_cents, customer_email,
+                reference, environment, gateway_name, gateway_order_id,
+                updated_at
             ) VALUES (
                 $1, NOW(), $2, 'COP', 'pending', $3, $4,
-                $5, $6, $7, $8, $9, NOW()
+                $5, $6, $7, $8, NOW()
             )
             RETURNING *
         """,
             data.reservation_id,
             amount,
             amount_in_cents,
-            data.payment_method_type.value,
             data.customer_email,
-            data.customer_data or {},
-            data.billing_data or {},
             reference,
-            settings.wompi_environment
+            settings.wompi_environment,  # Use same env setting
+            gateway.name,
+            intent.gateway_order_id
         )
 
         payment_id = payment_row['id']
+        logger.info(f"Created payment {payment_id} via {gateway.name} for reservation {data.reservation_id}")
 
-        # Build checkout URL (Wompi redirect)
-        checkout_url = None
-        if settings.wompi_public_key:
-            # In production, this would be Wompi's checkout URL
-            checkout_url = f"https://checkout.wompi.co/p/?public-key={settings.wompi_public_key}"
-
-        # Calculate expiration (same as reservation timeout)
-        expires_at = datetime.now() + reservations_service.timedelta(
-            minutes=reservations_service.RESERVATION_TIMEOUT_MINUTES
-        )
-
-        logger.info(f"Created payment intent {payment_id} for reservation {data.reservation_id}")
+        # Update payment with checkout URL
+        await conn.execute("""
+            UPDATE payments SET checkout_url = $2 WHERE id = $1
+        """, payment_id, intent.checkout_url)
 
         return PaymentIntentResponse(
             payment_id=payment_id,
             reservation_id=data.reservation_id,
+            gateway=gateway.name,
             amount=amount,
             amount_in_cents=amount_in_cents,
             currency="COP",
             reference=reference,
-            checkout_url=checkout_url,
-            public_key=settings.wompi_public_key,
-            expires_at=expires_at
+            checkout_url=intent.checkout_url,
+            gateway_order_id=intent.gateway_order_id,
+            expires_at=intent.expires_at or (datetime.now() + timedelta(minutes=PAYMENT_TIMEOUT_MINUTES))
         )
 
 
-async def get_payment_by_id(payment_id: int, user_id: str) -> Optional[Payment]:
-    """Get payment by ID with ownership verification"""
+async def get_payment_by_id(payment_id: int, user_id: Optional[str] = None) -> Optional[Payment]:
+    """Get payment by ID with optional ownership verification"""
     async with get_db_connection(use_transaction=False) as conn:
-        row = await conn.fetchrow("""
-            SELECT p.* FROM payments p
-            JOIN reservations r ON p.reservation_id = r.id
-            WHERE p.id = $1 AND r.user_id = $2
-        """, payment_id, user_id)
+        if user_id:
+            row = await conn.fetchrow("""
+                SELECT p.* FROM payments p
+                JOIN reservations r ON p.reservation_id = r.id
+                WHERE p.id = $1 AND r.user_id = $2
+            """, payment_id, user_id)
+        else:
+            row = await conn.fetchrow(
+                "SELECT * FROM payments WHERE id = $1",
+                payment_id
+            )
 
         if not row:
             return None
 
-        return Payment(**dict(row))
+        payment_dict = dict(row)
+        # Convert UUID to string
+        if payment_dict.get('reservation_id'):
+            payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+
+        return Payment(**payment_dict)
 
 
 async def get_payment_by_reference(reference: str) -> Optional[Payment]:
@@ -126,114 +200,87 @@ async def get_payment_by_reference(reference: str) -> Optional[Payment]:
         if not row:
             return None
 
-        return Payment(**dict(row))
+        payment_dict = dict(row)
+        if payment_dict.get('reservation_id'):
+            payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+
+        return Payment(**payment_dict)
 
 
-async def process_wompi_webhook(event: WompiWebhookEvent) -> bool:
-    """Process Wompi webhook event"""
-
-    # Verify signature
-    if not verify_wompi_signature(event):
-        logger.warning("Invalid Wompi webhook signature")
-        raise PaymentError("Invalid signature")
-
-    event_type = event.event
-    transaction_data = event.data.get('transaction', {})
-
-    if event_type == 'transaction.updated':
-        return await handle_transaction_updated(transaction_data)
-
-    logger.info(f"Unhandled Wompi event type: {event_type}")
-    return True
-
-
-def verify_wompi_signature(event: WompiWebhookEvent) -> bool:
-    """Verify Wompi webhook signature"""
-    if not settings.wompi_events_secret:
-        logger.warning("Wompi events secret not configured, skipping signature verification")
-        return True
-
-    # Wompi signature verification
-    signature_data = event.signature
-    properties = signature_data.get('properties', [])
-    checksum = signature_data.get('checksum', '')
-
-    # Build string to hash
-    transaction = event.data.get('transaction', {})
-    values = []
-    for prop in properties:
-        value = transaction.get(prop, '')
-        values.append(str(value))
-
-    values.append(str(event.timestamp))
-    values.append(settings.wompi_events_secret)
-
-    concatenated = ''.join(values)
-    calculated_checksum = hashlib.sha256(concatenated.encode()).hexdigest()
-
-    return hmac.compare_digest(calculated_checksum, checksum)
-
-
-async def handle_transaction_updated(transaction: dict) -> bool:
-    """Handle transaction.updated event from Wompi"""
-    reference = transaction.get('reference')
-    status = transaction.get('status')
-    transaction_id = transaction.get('id')
-
-    if not reference:
-        logger.warning("Transaction update without reference")
-        return False
-
-    async with get_db_connection() as conn:
-        # Find payment by reference
-        payment = await conn.fetchrow(
-            "SELECT id, reservation_id, status FROM payments WHERE reference = $1",
-            reference
+async def get_payment_by_gateway_order(gateway_order_id: str) -> Optional[Payment]:
+    """Get payment by gateway order ID"""
+    async with get_db_connection(use_transaction=False) as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM payments WHERE gateway_order_id = $1",
+            gateway_order_id
         )
 
-        if not payment:
-            logger.warning(f"Payment not found for reference: {reference}")
-            return False
+        if not row:
+            return None
 
-        # Map Wompi status to our status
-        status_mapping = {
-            'APPROVED': 'approved',
-            'DECLINED': 'declined',
-            'VOIDED': 'voided',
-            'ERROR': 'error',
-            'PENDING': 'pending'
-        }
+        payment_dict = dict(row)
+        if payment_dict.get('reservation_id'):
+            payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
 
-        new_status = status_mapping.get(status, 'pending')
+        return Payment(**payment_dict)
 
-        # Update payment
+
+async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
+    """
+    Process webhook from any gateway.
+
+    This is the unified webhook handler that routes to the appropriate gateway.
+    """
+    gateway = get_gateway(gateway_name)
+
+    try:
+        result = await gateway.process_webhook(event_data)
+    except Exception as e:
+        logger.error(f"Webhook processing error for {gateway_name}: {e}")
+        raise PaymentError(f"Webhook processing failed: {str(e)}")
+
+    if not result.success:
+        logger.warning(f"Webhook processing failed: {result.status_message}")
+        return False
+
+    # Find payment by reference or gateway_order_id
+    payment = await get_payment_by_reference(result.reference)
+    if not payment:
+        payment = await get_payment_by_gateway_order(result.reference)
+
+    if not payment:
+        logger.warning(f"Payment not found for reference: {result.reference}")
+        return False
+
+    # Update payment status
+    async with get_db_connection() as conn:
         await conn.execute("""
             UPDATE payments
             SET status = $2,
                 payment_gateway_transaction_id = $3,
                 finalized_at = CASE WHEN $2 IN ('approved', 'declined', 'voided', 'error') THEN NOW() ELSE NULL END,
                 status_message = $4,
-                payment_method_data = $5,
+                payment_method_type = $5,
+                payment_method_data = $6,
                 updated_at = NOW()
             WHERE id = $1
         """,
-            payment['id'],
-            new_status,
-            transaction_id,
-            transaction.get('status_message'),
-            transaction.get('payment_method', {})
+            payment.id,
+            result.status.value,
+            result.gateway_transaction_id,
+            result.status_message,
+            result.payment_method_type,
+            json.dumps(result.payment_method_data) if result.payment_method_data else None
         )
 
-        logger.info(f"Updated payment {payment['id']} status to {new_status}")
+        logger.info(f"Updated payment {payment.id} status to {result.status.value}")
 
         # If approved, confirm reservation
-        if new_status == 'approved':
-            await reservations_service.confirm_reservation(str(payment['reservation_id']))
-            logger.info(f"Confirmed reservation {payment['reservation_id']}")
+        if result.status == PaymentStatus.APPROVED:
+            await reservations_service.confirm_reservation(payment.reservation_id)
+            logger.info(f"Confirmed reservation {payment.reservation_id}")
 
-        # If declined/error, could release reservation (or let it expire)
-
-        return True
+    return True
 
 
 async def get_payments_by_reservation(reservation_id: str) -> list[PaymentSummary]:
@@ -268,6 +315,7 @@ async def simulate_payment_approval(payment_id: int) -> PaymentConfirmation:
             raise ValidationError(f"Payment already processed with status: {payment['status']}")
 
         # Update payment to approved
+        sim_transaction_id = f"SIM-{int(datetime.now().timestamp())}"
         await conn.execute("""
             UPDATE payments
             SET status = 'approved',
@@ -275,28 +323,64 @@ async def simulate_payment_approval(payment_id: int) -> PaymentConfirmation:
                 finalized_at = NOW(),
                 updated_at = NOW()
             WHERE id = $1
-        """, payment_id, f"SIM-{int(datetime.now().timestamp())}")
+        """, payment_id, sim_transaction_id)
+
+        reservation_id = str(payment['reservation_id'])
 
         # Confirm reservation
-        await reservations_service.confirm_reservation(str(payment['reservation_id']))
+        await reservations_service.confirm_reservation(reservation_id)
 
-        # Get tickets
-        tickets = await reservations_service.get_my_tickets(
-            (await conn.fetchval(
-                "SELECT user_id FROM reservations WHERE id = $1",
-                payment['reservation_id']
-            ))
+        # Get user_id from reservation
+        user_id = await conn.fetchval(
+            "SELECT user_id FROM reservations WHERE id = $1",
+            payment['reservation_id']
         )
 
-        logger.info(f"Simulated approval for payment {payment_id}")
+    # Get tickets (outside transaction)
+    tickets = await reservations_service.get_my_tickets(str(user_id))
 
-        return PaymentConfirmation(
-            payment_id=payment_id,
-            reservation_id=str(payment['reservation_id']),
-            status='approved',
-            amount=payment['amount'],
-            currency=payment['currency'],
-            payment_method=payment['payment_method_type'],
-            transaction_id=f"SIM-{int(datetime.now().timestamp())}",
-            tickets=[t.model_dump() for t in tickets]
-        )
+    logger.info(f"Simulated approval for payment {payment_id}")
+
+    return PaymentConfirmation(
+        payment_id=payment_id,
+        reservation_id=reservation_id,
+        status='approved',
+        amount=payment['amount'],
+        currency=payment['currency'],
+        payment_method=payment['gateway_name'],
+        transaction_id=sim_transaction_id,
+        tickets=[t.model_dump() for t in tickets]
+    )
+
+
+async def check_payment_status(payment_id: int) -> Payment:
+    """
+    Check current payment status with the gateway.
+
+    Useful for polling or verifying status.
+    """
+    payment = await get_payment_by_id(payment_id)
+    if not payment:
+        raise ValidationError("Payment not found")
+
+    # If already finalized, return current status
+    if payment.status in ['approved', 'declined', 'voided', 'error']:
+        return payment
+
+    # Query gateway for current status
+    if payment.gateway_name and payment.gateway_order_id:
+        gateway = get_gateway(payment.gateway_name)
+        result = await gateway.get_payment_status(payment.gateway_order_id)
+
+        if result.success and result.status != PaymentStatus.PENDING:
+            # Update our records
+            async with get_db_connection() as conn:
+                await conn.execute("""
+                    UPDATE payments
+                    SET status = $2, updated_at = NOW()
+                    WHERE id = $1
+                """, payment_id, result.status.value)
+
+            payment = await get_payment_by_id(payment_id)
+
+    return payment

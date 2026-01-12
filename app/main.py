@@ -87,14 +87,11 @@ app.middleware("http")(tenant_detection_middleware)   # runs first
 from app.routers import (
     events, areas, units, public,
     sale_stages, promotions, reservations, payments,
-    qr, transfers, dashboard, auth, uploads
+    qr, transfers, dashboard, auth
 )
 
 # Authentication (public endpoints)
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
-
-# File uploads (requires auth)
-app.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 
 # Event management (requires auth)
 app.include_router(events.router, prefix="/events", tags=["events"])

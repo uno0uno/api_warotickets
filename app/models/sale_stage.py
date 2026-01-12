@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -11,8 +11,8 @@ class PriceAdjustmentType(str, Enum):
     FIXED = "fixed"            # Valor fijo (+5000 = +5000 COP)
 
 
-class SaleStageBase(BaseModel):
-    """Campos base de etapa de venta"""
+class AreaSaleStageBase(BaseModel):
+    """Campos base de etapa de venta para areas"""
     stage_name: str = Field(..., min_length=1, max_length=100, description="Nombre de la etapa (Early Bird, Preventa, etc)")
     description: Optional[str] = Field(None, description="Descripcion de la etapa")
     price_adjustment_type: PriceAdjustmentType = Field(..., description="Tipo de ajuste: percentage o fixed")
@@ -23,13 +23,12 @@ class SaleStageBase(BaseModel):
     priority_order: int = Field(default=0, description="Orden de prioridad (menor = mayor prioridad)")
 
 
-class SaleStageCreate(SaleStageBase):
+class AreaSaleStageCreate(AreaSaleStageBase):
     """Schema para crear etapa de venta"""
-    target_area_id: Optional[int] = Field(None, description="Area especifica (None = todas)")
-    target_product_variant_id: Optional[str] = Field(None, description="Variante especifica")
+    area_id: int = Field(..., description="ID del area")
 
 
-class SaleStageUpdate(BaseModel):
+class AreaSaleStageUpdate(BaseModel):
     """Schema para actualizar etapa de venta"""
     stage_name: Optional[str] = None
     description: Optional[str] = None
@@ -40,14 +39,12 @@ class SaleStageUpdate(BaseModel):
     end_time: Optional[datetime] = None
     is_active: Optional[bool] = None
     priority_order: Optional[int] = None
-    target_area_id: Optional[int] = None
 
 
-class SaleStage(SaleStageBase):
+class AreaSaleStage(AreaSaleStageBase):
     """Schema completo de etapa de venta"""
     id: str  # UUID
-    target_area_id: Optional[int] = None
-    target_product_variant_id: Optional[str] = None
+    area_id: int
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -56,13 +53,19 @@ class SaleStage(SaleStageBase):
     tickets_sold_in_stage: Optional[int] = None
     is_currently_active: Optional[bool] = None
 
+    # Campos de contexto (opcionales, para respuestas enriquecidas)
+    area_name: Optional[str] = None
+    cluster_id: Optional[int] = None
+
     class Config:
         from_attributes = True
 
 
-class SaleStageSummary(BaseModel):
+class AreaSaleStageSummary(BaseModel):
     """Schema resumido de etapa"""
     id: str
+    area_id: int
+    area_name: Optional[str] = None
     stage_name: str
     price_adjustment_type: str
     price_adjustment_value: Decimal
@@ -76,7 +79,7 @@ class SaleStageSummary(BaseModel):
         from_attributes = True
 
 
-class ActiveSaleStage(BaseModel):
+class ActiveAreaSaleStage(BaseModel):
     """Etapa de venta activa para un area"""
     stage_id: str
     stage_name: str
@@ -85,3 +88,12 @@ class ActiveSaleStage(BaseModel):
     discount_percentage: Optional[Decimal] = None
     tickets_remaining: int
     ends_at: Optional[datetime] = None
+
+
+# Aliases para compatibilidad (deprecados, usar Area* versions)
+SaleStageBase = AreaSaleStageBase
+SaleStageCreate = AreaSaleStageCreate
+SaleStageUpdate = AreaSaleStageUpdate
+SaleStage = AreaSaleStage
+SaleStageSummary = AreaSaleStageSummary
+ActiveSaleStage = ActiveAreaSaleStage

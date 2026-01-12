@@ -1,14 +1,25 @@
 import logging
+import json
 from typing import Optional, List
 from app.database import get_db_connection
-from app.models.unit import (
-    Unit, UnitCreate, UnitUpdate, UnitSummary,
-    UnitBulkCreate, UnitBulkUpdate, UnitBulkResponse,
-    UnitWithArea, UnitsMapView
-)
-from app.core.exceptions import ValidationError, DatabaseError
+from app.models.unit import Unit, UnitUpdate, UnitSummary, UnitsMapView
+from app.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_extra_attributes(value) -> dict:
+    """Parse extra_attributes from DB (may come as string or dict)"""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
 
 
 def generate_display_name(letter: str, number: int) -> str:
@@ -19,20 +30,22 @@ def generate_display_name(letter: str, number: int) -> str:
 
 
 async def get_units_by_area(
+    cluster_id: int,
     area_id: int,
     profile_id: str,
+    tenant_id: str,
     status: Optional[str] = None,
     limit: int = 1000,
     offset: int = 0
 ) -> List[UnitSummary]:
-    """Get units for an area with ownership validation"""
+    """Get units for an area with ownership, cluster and tenant validation"""
     async with get_db_connection(use_transaction=False) as conn:
-        # Verify ownership
+        # Verify ownership, cluster and tenant
         area = await conn.fetchrow("""
             SELECT a.id FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND c.profile_id = $2
-        """, area_id, profile_id)
+            WHERE a.id = $1 AND c.id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
+        """, area_id, cluster_id, profile_id, tenant_id)
 
         if not area:
             return []
@@ -69,15 +82,20 @@ async def get_units_by_area(
         return units
 
 
-async def get_unit_by_id(unit_id: int, profile_id: str) -> Optional[Unit]:
-    """Get unit by ID with ownership validation"""
+async def get_unit_by_id(
+    cluster_id: int,
+    unit_id: int,
+    profile_id: str,
+    tenant_id: str
+) -> Optional[Unit]:
+    """Get unit by ID with ownership, cluster and tenant validation"""
     async with get_db_connection(use_transaction=False) as conn:
         row = await conn.fetchrow("""
             SELECT u.* FROM units u
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE u.id = $1 AND c.profile_id = $2
-        """, unit_id, profile_id)
+            WHERE u.id = $1 AND c.id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
+        """, unit_id, cluster_id, profile_id, tenant_id)
 
         if not row:
             return None
@@ -87,129 +105,28 @@ async def get_unit_by_id(unit_id: int, profile_id: str) -> Optional[Unit]:
             row['nomenclature_letter_area'] or '',
             row['nomenclature_number_unit'] or row['id']
         )
+        if 'extra_attributes' in unit_dict:
+            unit_dict['extra_attributes'] = _parse_extra_attributes(unit_dict['extra_attributes'])
 
         return Unit(**unit_dict)
 
 
-async def create_unit(profile_id: str, data: UnitCreate) -> Unit:
-    """Create a single unit"""
+async def update_unit_status(
+    cluster_id: int,
+    unit_id: int,
+    profile_id: str,
+    tenant_id: str,
+    data: UnitUpdate
+) -> Optional[Unit]:
+    """Update unit status only"""
     async with get_db_connection() as conn:
-        # Verify area ownership
-        area = await conn.fetchrow("""
-            SELECT a.id FROM areas a
-            JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND c.profile_id = $2
-        """, data.area_id, profile_id)
-
-        if not area:
-            raise ValidationError("Area not found or access denied")
-
-        row = await conn.fetchrow("""
-            INSERT INTO units (
-                area_id, status, nomenclature_letter_area,
-                nomenclature_number_area, nomenclature_number_unit,
-                extra_attributes, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-            RETURNING *
-        """,
-            data.area_id,
-            data.status,
-            data.nomenclature_letter_area,
-            data.nomenclature_number_area,
-            data.nomenclature_number_unit,
-            data.extra_attributes or {}
-        )
-
-        unit_dict = dict(row)
-        unit_dict['display_name'] = generate_display_name(
-            row['nomenclature_letter_area'] or '',
-            row['nomenclature_number_unit'] or row['id']
-        )
-
-        logger.info(f"Created unit: {row['id']}")
-        return Unit(**unit_dict)
-
-
-async def create_units_bulk(profile_id: str, data: UnitBulkCreate) -> UnitBulkResponse:
-    """Create multiple units at once"""
-    async with get_db_connection() as conn:
-        # Verify area ownership
-        area = await conn.fetchrow("""
-            SELECT a.id, a.capacity,
-                (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id) as existing_count
-            FROM areas a
-            JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND c.profile_id = $2
-        """, data.area_id, profile_id)
-
-        if not area:
-            raise ValidationError("Area not found or access denied")
-
-        # Check capacity
-        if area['existing_count'] + data.quantity > area['capacity']:
-            raise ValidationError(
-                f"Cannot create {data.quantity} units. Area capacity: {area['capacity']}, existing: {area['existing_count']}",
-                {"capacity": area['capacity'], "existing": area['existing_count']}
-            )
-
-        # Prepare bulk insert data
-        units_data = []
-        for i in range(data.quantity):
-            unit_number = data.start_number + i
-            units_data.append((
-                data.area_id,
-                data.status,
-                data.nomenclature_prefix,
-                None,
-                unit_number,
-                {}
-            ))
-
-        # Bulk insert
-        await conn.executemany("""
-            INSERT INTO units (
-                area_id, status, nomenclature_letter_area,
-                nomenclature_number_area, nomenclature_number_unit,
-                extra_attributes, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-        """, units_data)
-
-        # Fetch created units
-        rows = await conn.fetch("""
-            SELECT id, area_id, status, nomenclature_letter_area, nomenclature_number_unit
-            FROM units
-            WHERE area_id = $1
-            ORDER BY id DESC
-            LIMIT $2
-        """, data.area_id, data.quantity)
-
-        units = []
-        for row in rows:
-            unit_dict = dict(row)
-            unit_dict['display_name'] = generate_display_name(
-                row['nomenclature_letter_area'] or '',
-                row['nomenclature_number_unit'] or row['id']
-            )
-            units.append(UnitSummary(**unit_dict))
-
-        logger.info(f"Created {data.quantity} units for area {data.area_id}")
-
-        return UnitBulkResponse(
-            total_created=data.quantity,
-            units=list(reversed(units))
-        )
-
-
-async def update_unit(unit_id: int, profile_id: str, data: UnitUpdate) -> Optional[Unit]:
-    """Update a unit"""
-    async with get_db_connection() as conn:
-        # Verify ownership
+        # Verify ownership, cluster and tenant
         existing = await conn.fetchrow("""
             SELECT u.id, u.status FROM units u
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE u.id = $1 AND c.profile_id = $2
-        """, unit_id, profile_id)
+            WHERE u.id = $1 AND c.id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
+        """, unit_id, cluster_id, profile_id, tenant_id)
 
         if not existing:
             return None
@@ -218,108 +135,35 @@ async def update_unit(unit_id: int, profile_id: str, data: UnitUpdate) -> Option
         if data.status and existing['status'] == 'sold':
             raise ValidationError("Cannot change status of sold unit")
 
-        # Build dynamic update
-        update_fields = []
-        params = []
-        param_idx = 1
+        if not data.status:
+            return await get_unit_by_id(cluster_id, unit_id, profile_id, tenant_id)
 
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            update_fields.append(f"{field} = ${param_idx}")
-            params.append(value)
-            param_idx += 1
-
-        if not update_fields:
-            return await get_unit_by_id(unit_id, profile_id)
-
-        update_fields.append("updated_at = NOW()")
-
-        query = f"""
+        await conn.fetchrow("""
             UPDATE units
-            SET {', '.join(update_fields)}
-            WHERE id = ${param_idx}
+            SET status = $1, updated_at = NOW()
+            WHERE id = $2
             RETURNING *
-        """
-        params.append(unit_id)
+        """, data.status, unit_id)
 
-        await conn.fetchrow(query, *params)
-        logger.info(f"Updated unit: {unit_id}")
-
-        return await get_unit_by_id(unit_id, profile_id)
-
-
-async def update_units_bulk(profile_id: str, data: UnitBulkUpdate) -> int:
-    """Update multiple units at once"""
-    async with get_db_connection() as conn:
-        # Verify ownership of all units
-        owned = await conn.fetch("""
-            SELECT u.id FROM units u
-            JOIN areas a ON u.area_id = a.id
-            JOIN clusters c ON a.cluster_id = c.id
-            WHERE u.id = ANY($1) AND c.profile_id = $2
-        """, data.unit_ids, profile_id)
-
-        owned_ids = [row['id'] for row in owned]
-        if len(owned_ids) != len(data.unit_ids):
-            raise ValidationError("Some units not found or access denied")
-
-        # Build update
-        update_fields = ["updated_at = NOW()"]
-        params = [data.unit_ids]
-        param_idx = 2
-
-        if data.status:
-            update_fields.append(f"status = ${param_idx}")
-            params.append(data.status)
-            param_idx += 1
-
-        if data.extra_attributes:
-            update_fields.append(f"extra_attributes = ${param_idx}")
-            params.append(data.extra_attributes)
-            param_idx += 1
-
-        result = await conn.execute(f"""
-            UPDATE units
-            SET {', '.join(update_fields)}
-            WHERE id = ANY($1) AND status != 'sold'
-        """, *params)
-
-        count = int(result.split()[-1])
-        logger.info(f"Bulk updated {count} units")
-        return count
-
-
-async def delete_unit(unit_id: int, profile_id: str) -> bool:
-    """Delete a unit (only if available or blocked)"""
-    async with get_db_connection() as conn:
-        # Verify ownership and status
-        existing = await conn.fetchrow("""
-            SELECT u.id, u.status FROM units u
-            JOIN areas a ON u.area_id = a.id
-            JOIN clusters c ON a.cluster_id = c.id
-            WHERE u.id = $1 AND c.profile_id = $2
-        """, unit_id, profile_id)
-
-        if not existing:
-            return False
-
-        if existing['status'] in ['sold', 'reserved']:
-            raise ValidationError(f"Cannot delete unit with status: {existing['status']}")
-
-        result = await conn.execute("DELETE FROM units WHERE id = $1", unit_id)
-        deleted = result == "DELETE 1"
-
-        if deleted:
-            logger.info(f"Deleted unit: {unit_id}")
-        return deleted
+        return await get_unit_by_id(cluster_id, unit_id, profile_id, tenant_id)
 
 
 async def get_available_units(
+    cluster_id: int,
     area_id: int,
     quantity: int = 1
 ) -> List[UnitSummary]:
-    """Get available units for purchase (public)"""
+    """Get available units for purchase (public) with cluster validation"""
     async with get_db_connection(use_transaction=False) as conn:
+        # Verify area belongs to cluster
+        area = await conn.fetchrow("""
+            SELECT a.id FROM areas a
+            WHERE a.id = $1 AND a.cluster_id = $2
+        """, area_id, cluster_id)
+
+        if not area:
+            return []
+
         rows = await conn.fetch("""
             SELECT id, area_id, status, nomenclature_letter_area, nomenclature_number_unit
             FROM units
@@ -396,13 +240,13 @@ async def mark_units_sold(unit_ids: List[int]) -> int:
         return count
 
 
-async def get_units_map(area_id: int) -> Optional[UnitsMapView]:
-    """Get units map view for an area (for seat selection UI)"""
+async def get_units_map(cluster_id: int, area_id: int) -> Optional[UnitsMapView]:
+    """Get units map view for an area (for seat selection UI) with cluster validation"""
     async with get_db_connection(use_transaction=False) as conn:
         area = await conn.fetchrow("""
             SELECT id, area_name, extra_attributes
-            FROM areas WHERE id = $1
-        """, area_id)
+            FROM areas WHERE id = $1 AND cluster_id = $2
+        """, area_id, cluster_id)
 
         if not area:
             return None
@@ -423,10 +267,11 @@ async def get_units_map(area_id: int) -> Optional[UnitsMapView]:
             )
             units.append(UnitSummary(**unit_dict))
 
+        extra_attrs = _parse_extra_attributes(area['extra_attributes'])
         return UnitsMapView(
             area_id=area_id,
             area_name=area['area_name'],
             total_units=len(units),
             units=units,
-            layout=area['extra_attributes'].get('layout') if area['extra_attributes'] else None
+            layout=extra_attrs.get('layout') if extra_attrs else None
         )

@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     wompi_events_secret: Optional[str] = Field(default=None, alias='WOMPI_EVENTS_SECRET')
     wompi_environment: str = Field(default='sandbox', alias='WOMPI_ENVIRONMENT')
 
+    # Bold - Pasarela de pagos (bold.co)
+    bold_api_key: Optional[str] = Field(default=None, alias='BOLD_API_KEY')
+    bold_secret_key: Optional[str] = Field(default=None, alias='BOLD_SECRET_KEY')
+    bold_environment: str = Field(default='sandbox', alias='BOLD_ENVIRONMENT')
+
     # App settings
     environment: str = Field(default="development", alias='NODE_ENV')
     base_url: str = Field(default="http://localhost:8001", alias='NUXT_PUBLIC_BASE_URL')

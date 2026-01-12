@@ -9,11 +9,31 @@
 		{
 			"key": "baseUrl",
 			"value": "{{BASE_URL}}"
+		},
+		{
+			"key": "STAGE_ID",
+			"value": "",
+			"description": "UUID de la etapa de venta (sale stage)"
+		},
+		{
+			"key": "PROMO_ID",
+			"value": "",
+			"description": "UUID de la promocion"
+		},
+		{
+			"key": "RESERVATION_ID",
+			"value": "",
+			"description": "UUID de la reservacion"
+		},
+		{
+			"key": "PAYMENT_ID",
+			"value": "",
+			"description": "ID del pago"
 		}
 	],
 	"item": [
 		{
-			"name": "🔐 Auth",
+			"name": "Auth",
 			"item": [
 				{
 					"name": "Send Magic Link",
@@ -82,65 +102,7 @@
 			]
 		},
 		{
-			"name": "📁 Uploads",
-			"item": [
-				{
-					"name": "Upload Image",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "formdata",
-							"formdata": [
-								{
-									"key": "file",
-									"type": "file",
-									"src": ""
-								}
-							]
-						},
-						"url": {
-							"raw": "{{BASE_URL}}/uploads/image",
-							"host": ["{{BASE_URL}}"],
-							"path": ["uploads", "image"]
-						},
-						"description": "Sube una imagen (max 5MB, JPEG/PNG/WebP/GIF)"
-					}
-				},
-				{
-					"name": "Get Presigned URL",
-					"request": {
-						"method": "POST",
-						"header": [
-							{"key": "Content-Type", "value": "application/json"}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"filename\": \"event-cover.jpg\",\n    \"content_type\": \"image/jpeg\",\n    \"folder\": \"events\"\n}"
-						},
-						"url": {
-							"raw": "{{BASE_URL}}/uploads/presigned-url",
-							"host": ["{{BASE_URL}}"],
-							"path": ["uploads", "presigned-url"]
-						}
-					}
-				},
-				{
-					"name": "Delete Image",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/uploads/{{IMAGE_ID}}",
-							"host": ["{{BASE_URL}}"],
-							"path": ["uploads", "{{IMAGE_ID}}"]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "🎉 Events",
+			"name": "Events",
 			"item": [
 				{
 					"name": "List My Events",
@@ -156,7 +118,8 @@
 								{"key": "offset", "value": "0"},
 								{"key": "is_active", "value": "true", "disabled": true}
 							]
-						}
+						},
+						"description": "Lista todos los eventos del usuario autenticado"
 					}
 				},
 				{
@@ -168,7 +131,8 @@
 							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["events", "{{EVENT_ID}}"]
-						}
+						},
+						"description": "Obtiene detalles de un evento por ID"
 					}
 				},
 				{
@@ -186,25 +150,27 @@
 							"raw": "{{BASE_URL}}/events",
 							"host": ["{{BASE_URL}}"],
 							"path": ["events"]
-						}
+						},
+						"description": "Crea un nuevo evento. Las áreas se crean por separado en POST /areas/event/{cluster_id}"
 					}
 				},
 				{
 					"name": "Update Event",
 					"request": {
-						"method": "PUT",
+						"method": "PATCH",
 						"header": [
 							{"key": "Content-Type", "value": "application/json"}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"description\": \"Descripción actualizada\",\n    \"is_active\": true\n}"
+							"raw": "{\n    \"cluster_name\": \"Nombre actualizado\",\n    \"description\": \"Descripción actualizada\",\n    \"is_active\": true\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["events", "{{EVENT_ID}}"]
-						}
+						},
+						"description": "Actualiza solo información del evento. Las áreas se gestionan en /areas"
 					}
 				},
 				{
@@ -216,16 +182,49 @@
 							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["events", "{{EVENT_ID}}"]
-						}
+						},
+						"description": "Soft delete (is_active = false)"
+					}
+				},
+				{
+					"name": "Add Event Image",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"image_id\": \"{{IMAGE_ID}}\",\n    \"type_image\": \"cover\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}/images",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events", "{{EVENT_ID}}", "images"]
+						},
+						"description": "Agrega una imagen al evento (cover, banner, thumbnail, gallery)"
+					}
+				},
+				{
+					"name": "Remove Event Image",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/events/{{EVENT_ID}}/images/{{IMAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["events", "{{EVENT_ID}}", "images", "{{IMAGE_ID}}"]
+						},
+						"description": "Elimina una imagen del evento"
 					}
 				}
 			]
 		},
 		{
-			"name": "🏟️ Areas",
+			"name": "Areas",
 			"item": [
 				{
-					"name": "List Areas",
+					"name": "List Areas by Event",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -233,7 +232,8 @@
 							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["areas", "event", "{{EVENT_ID}}"]
-						}
+						},
+						"description": "Lista todas las áreas de un evento específico"
 					}
 				},
 				{
@@ -242,10 +242,11 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/areas/{{AREA_ID}}",
+							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}/{{AREA_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["areas", "{{AREA_ID}}"]
-						}
+							"path": ["areas", "event", "{{EVENT_ID}}", "{{AREA_ID}}"]
+						},
+						"description": "Obtiene detalles de un área específica dentro de un evento"
 					}
 				},
 				{
@@ -257,31 +258,33 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"area_name\": \"VIP\",\n    \"description\": \"Zona VIP con acceso preferencial\",\n    \"capacity\": 100,\n    \"base_price\": 250000,\n    \"auto_generate_units\": true,\n    \"nomenclature_prefix\": \"VIP\"\n}"
+							"raw": "{\n    \"area_name\": \"VIP\",\n    \"description\": \"Zona VIP con acceso preferencial\",\n    \"capacity\": 100,\n    \"price\": 250000,\n    \"currency\": \"COP\",\n    \"nomenclature_letter\": \"V\",\n    \"unit_capacity\": 1,\n    \"service\": 0.1\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/areas",
+							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["areas"]
-						}
+							"path": ["areas", "event", "{{EVENT_ID}}"]
+						},
+						"description": "Crea una nueva área para un evento. Las units se auto-generan basándose en la capacidad."
 					}
 				},
 				{
 					"name": "Update Area",
 					"request": {
-						"method": "PUT",
+						"method": "PATCH",
 						"header": [
 							{"key": "Content-Type", "value": "application/json"}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"base_price\": 300000,\n    \"description\": \"Zona VIP Premium\"\n}"
+							"raw": "{\n    \"price\": 300000,\n    \"description\": \"Zona VIP Premium actualizada\"\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/areas/{{AREA_ID}}",
+							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}/{{AREA_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["areas", "{{AREA_ID}}"]
-						}
+							"path": ["areas", "event", "{{EVENT_ID}}", "{{AREA_ID}}"]
+						},
+						"description": "Actualiza un área existente dentro de un evento"
 					}
 				},
 				{
@@ -290,16 +293,31 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/areas/{{AREA_ID}}",
+							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}/{{AREA_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["areas", "{{AREA_ID}}"]
-						}
+							"path": ["areas", "event", "{{EVENT_ID}}", "{{AREA_ID}}"]
+						},
+						"description": "Elimina un área (solo si no hay tickets vendidos ni reservados)"
+					}
+				},
+				{
+					"name": "Get Area Availability (Public)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}/{{AREA_ID}}/availability",
+							"host": ["{{BASE_URL}}"],
+							"path": ["areas", "event", "{{EVENT_ID}}", "{{AREA_ID}}", "availability"]
+						},
+						"description": "Obtiene disponibilidad pública de un área (no requiere autenticación)"
 					}
 				}
 			]
 		},
 		{
-			"name": "🎫 Units",
+			"name": "Units",
+			"description": "Las units se auto-generan al crear un area. Solo se permite consultar y cambiar su status.",
 			"item": [
 				{
 					"name": "List Units by Area",
@@ -307,78 +325,113 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/units/area/{{AREA_ID}}?status=available",
+							"raw": "{{BASE_URL}}/units/event/{{EVENT_ID}}/area/{{AREA_ID}}?status=available",
 							"host": ["{{BASE_URL}}"],
-							"path": ["units", "area", "{{AREA_ID}}"],
+							"path": ["units", "event", "{{EVENT_ID}}", "area", "{{AREA_ID}}"],
 							"query": [
-								{"key": "status", "value": "available", "disabled": true}
+								{"key": "status", "value": "available", "disabled": true},
+								{"key": "limit", "value": "1000", "disabled": true},
+								{"key": "offset", "value": "0", "disabled": true}
 							]
-						}
+						},
+						"description": "Lista todas las unidades de un area dentro de un evento. Requiere autenticacion."
 					}
 				},
 				{
-					"name": "Create Units Bulk",
+					"name": "Get Unit by ID",
 					"request": {
-						"method": "POST",
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/units/event/{{EVENT_ID}}/{{UNIT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["units", "event", "{{EVENT_ID}}", "{{UNIT_ID}}"]
+						},
+						"description": "Obtiene detalles de una unidad especifica dentro de un evento. Requiere autenticacion."
+					}
+				},
+				{
+					"name": "Update Unit Status",
+					"request": {
+						"method": "PATCH",
 						"header": [
 							{"key": "Content-Type", "value": "application/json"}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"quantity\": 50,\n    \"nomenclature_prefix\": \"A\",\n    \"start_number\": 1\n}"
+							"raw": "{\n    \"status\": \"available\"\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/units/bulk",
+							"raw": "{{BASE_URL}}/units/event/{{EVENT_ID}}/{{UNIT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["units", "bulk"]
-						}
+							"path": ["units", "event", "{{EVENT_ID}}", "{{UNIT_ID}}"]
+						},
+						"description": "Actualiza solo el status de una unidad (available, reserved, sold). No se puede cambiar el status de unidades vendidas."
 					}
 				},
 				{
-					"name": "Update Units Bulk",
+					"name": "Get Available Units (Public)",
 					"request": {
-						"method": "PUT",
-						"header": [
-							{"key": "Content-Type", "value": "application/json"}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"unit_ids\": [1, 2, 3],\n    \"status\": \"available\"\n}"
-						},
+						"method": "GET",
+						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/units/bulk",
+							"raw": "{{BASE_URL}}/units/event/{{EVENT_ID}}/area/{{AREA_ID}}/available?quantity=10",
 							"host": ["{{BASE_URL}}"],
-							"path": ["units", "bulk"]
-						}
+							"path": ["units", "event", "{{EVENT_ID}}", "area", "{{AREA_ID}}", "available"],
+							"query": [
+								{"key": "quantity", "value": "10"}
+							]
+						},
+						"description": "Obtiene unidades disponibles para compra. Endpoint publico."
+					}
+				},
+				{
+					"name": "Get Units Map (Public)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/units/event/{{EVENT_ID}}/area/{{AREA_ID}}/map",
+							"host": ["{{BASE_URL}}"],
+							"path": ["units", "event", "{{EVENT_ID}}", "area", "{{AREA_ID}}", "map"]
+						},
+						"description": "Obtiene mapa de unidades para UI de seleccion de asientos. Endpoint publico."
 					}
 				}
 			]
 		},
 		{
-			"name": "📊 Sale Stages",
+			"name": "Sale Stages",
+			"description": "Etapas de venta para areas de eventos (Early Bird, Preventa, etc). Cada stage aplica a un area específica dentro de un evento.",
 			"item": [
 				{
-					"name": "List Sale Stages",
+					"name": "List Sale Stages by Event",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}",
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}?area_id={{AREA_ID}}&is_active=true",
 							"host": ["{{BASE_URL}}"],
-							"path": ["sale-stages", "event", "{{EVENT_ID}}"]
-						}
+							"path": ["sale-stages", "event", "{{EVENT_ID}}"],
+							"query": [
+								{"key": "area_id", "value": "{{AREA_ID}}", "description": "Filtrar por area específica", "disabled": true},
+								{"key": "is_active", "value": "true", "description": "Filtrar por estado activo", "disabled": true}
+							]
+						},
+						"description": "Lista todas las etapas de venta de un evento. Opcionalmente filtra por area o estado activo."
 					}
 				},
 				{
-					"name": "Get Active Stage",
+					"name": "Get Sale Stage by ID",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/active",
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/{{STAGE_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["sale-stages", "event", "{{EVENT_ID}}", "active"]
-						}
+							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
+						},
+						"description": "Obtiene detalles de una etapa de venta específica dentro de un evento."
 					}
 				},
 				{
@@ -390,31 +443,71 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"name\": \"Early Bird\",\n    \"adjustment_type\": \"percentage\",\n    \"adjustment_value\": -20,\n    \"start_date\": \"2025-01-01T00:00:00\",\n    \"end_date\": \"2025-03-31T23:59:59\",\n    \"priority\": 1\n}"
+							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"stage_name\": \"Early Bird\",\n    \"description\": \"Descuento especial por compra anticipada\",\n    \"price_adjustment_type\": \"percentage\",\n    \"price_adjustment_value\": -20,\n    \"quantity_available\": 100,\n    \"start_time\": \"2026-01-10T00:00:00Z\",\n    \"end_time\": \"2026-01-31T23:59:59Z\",\n    \"priority_order\": 1\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/sale-stages",
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["sale-stages"]
-						}
+							"path": ["sale-stages", "event", "{{EVENT_ID}}"]
+						},
+						"description": "Crea una nueva etapa de venta para un area del evento.\n\n**Campos:**\n- `area_id`: ID del area donde aplica el stage\n- `stage_name`: Nombre (Early Bird, Preventa, General)\n- `price_adjustment_type`: 'percentage' o 'fixed'\n- `price_adjustment_value`: Negativo = descuento (-20 = 20% off)\n- `quantity_available`: Tickets disponibles en esta etapa\n- `start_time`: Inicio de la etapa (ISO 8601)\n- `end_time`: Fin de la etapa (null = sin límite)\n- `priority_order`: Menor número = mayor prioridad"
 					}
 				},
 				{
-					"name": "Update Sale Stage",
+					"name": "Create Sale Stage (Fixed Discount)",
 					"request": {
-						"method": "PUT",
+						"method": "POST",
 						"header": [
 							{"key": "Content-Type", "value": "application/json"}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"adjustment_value\": -25,\n    \"is_active\": true\n}"
+							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"stage_name\": \"Descuento Especial\",\n    \"description\": \"Descuento fijo de $50,000 COP\",\n    \"price_adjustment_type\": \"fixed\",\n    \"price_adjustment_value\": -50000,\n    \"quantity_available\": 50,\n    \"start_time\": \"2026-02-01T00:00:00Z\",\n    \"end_time\": \"2026-02-15T23:59:59Z\",\n    \"priority_order\": 2\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/sale-stages/{{STAGE_ID}}",
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["sale-stages", "{{STAGE_ID}}"]
-						}
+							"path": ["sale-stages", "event", "{{EVENT_ID}}"]
+						},
+						"description": "Ejemplo de crear un stage con descuento fijo en lugar de porcentaje."
+					}
+				},
+				{
+					"name": "Update Sale Stage",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"price_adjustment_value\": -25,\n    \"quantity_available\": 150,\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/{{STAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
+						},
+						"description": "Actualiza una etapa de venta. Solo envía los campos que deseas modificar."
+					}
+				},
+				{
+					"name": "Deactivate Sale Stage",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"is_active\": false\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/{{STAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
+						},
+						"description": "Desactiva una etapa de venta sin eliminarla."
 					}
 				},
 				{
@@ -423,31 +516,70 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/sale-stages/{{STAGE_ID}}",
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/{{STAGE_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["sale-stages", "{{STAGE_ID}}"]
-						}
+							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
+						},
+						"description": "Elimina permanentemente una etapa de venta."
 					}
 				}
 			]
 		},
 		{
-			"name": "🏷️ Promotions",
+			"name": "Promotions",
+			"description": "Promociones para areas de eventos. Cada promocion aplica a un area especifica dentro de un evento (similar a Sale Stages).",
 			"item": [
 				{
-					"name": "List Promotions",
+					"name": "List Promotions by Event",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}?area_id={{AREA_ID}}&is_active=true",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "event", "{{EVENT_ID}}"],
+							"query": [
+								{"key": "area_id", "value": "{{AREA_ID}}", "description": "Filtrar por area especifica", "disabled": true},
+								{"key": "is_active", "value": "true", "description": "Filtrar por estado activo", "disabled": true}
+							]
+						},
+						"description": "Lista todas las promociones de un evento. Opcionalmente filtra por area o estado activo."
+					}
+				},
+				{
+					"name": "Get Promotion by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}/{{PROMO_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
+						},
+						"description": "Obtiene detalles de una promocion especifica dentro de un evento."
+					}
+				},
+				{
+					"name": "Create Promotion (Percentage)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"promotion_name\": \"Descuento Early Bird\",\n    \"promotion_code\": \"EARLY20\",\n    \"description\": \"20% de descuento para compras anticipadas\",\n    \"discount_type\": \"percentage\",\n    \"discount_value\": 20,\n    \"max_discount_amount\": 50000,\n    \"min_quantity\": 1,\n    \"quantity_available\": 100,\n    \"start_time\": \"2026-01-10T00:00:00Z\",\n    \"end_time\": \"2026-03-31T23:59:59Z\",\n    \"priority_order\": 1\n}"
+						},
+						"url": {
 							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["promotions", "event", "{{EVENT_ID}}"]
-						}
+						},
+						"description": "Crea una nueva promocion para un area del evento.\n\n**Campos:**\n- `area_id`: ID del area donde aplica la promocion\n- `promotion_name`: Nombre de la promocion\n- `promotion_code`: Codigo promocional (ej: EARLY20)\n- `discount_type`: 'percentage' o 'fixed'\n- `discount_value`: Valor del descuento (20 = 20% o $20,000)\n- `max_discount_amount`: Tope maximo de descuento (para porcentajes)\n- `min_quantity`: Minimo de tickets para aplicar\n- `quantity_available`: Usos disponibles (null = ilimitado)\n- `start_time`: Inicio de vigencia (ISO 8601)\n- `end_time`: Fin de vigencia (null = sin limite)\n- `priority_order`: Menor numero = mayor prioridad"
 					}
 				},
 				{
-					"name": "Create Promotion",
+					"name": "Create Promotion (Fixed)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -455,49 +587,52 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"code\": \"DESCUENTO20\",\n    \"discount_type\": \"percentage\",\n    \"discount_value\": 20,\n    \"max_uses\": 100,\n    \"valid_from\": \"2025-01-01T00:00:00\",\n    \"valid_until\": \"2025-06-01T23:59:59\",\n    \"applies_to\": \"all\"\n}"
+							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"promotion_name\": \"Descuento VIP\",\n    \"promotion_code\": \"VIP10K\",\n    \"description\": \"$10,000 de descuento por ticket\",\n    \"discount_type\": \"fixed\",\n    \"discount_value\": 10000,\n    \"min_quantity\": 2,\n    \"start_time\": \"2026-01-01T00:00:00Z\",\n    \"end_time\": \"2026-12-31T23:59:59Z\",\n    \"priority_order\": 2\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/promotions",
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["promotions"]
-						}
-					}
-				},
-				{
-					"name": "Validate Promotion Code",
-					"request": {
-						"method": "POST",
-						"header": [
-							{"key": "Content-Type", "value": "application/json"}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"code\": \"DESCUENTO20\",\n    \"cluster_id\": {{EVENT_ID}},\n    \"unit_ids\": [1, 2, 3]\n}"
+							"path": ["promotions", "event", "{{EVENT_ID}}"]
 						},
-						"url": {
-							"raw": "{{BASE_URL}}/promotions/validate",
-							"host": ["{{BASE_URL}}"],
-							"path": ["promotions", "validate"]
-						}
+						"description": "Ejemplo de crear una promocion con descuento fijo en lugar de porcentaje."
 					}
 				},
 				{
 					"name": "Update Promotion",
 					"request": {
-						"method": "PUT",
+						"method": "PATCH",
 						"header": [
 							{"key": "Content-Type", "value": "application/json"}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"max_uses\": 200,\n    \"is_active\": true\n}"
+							"raw": "{\n    \"discount_value\": 25,\n    \"quantity_available\": 150,\n    \"is_active\": true\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/promotions/{{PROMOTION_ID}}",
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}/{{PROMO_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["promotions", "{{PROMOTION_ID}}"]
-						}
+							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
+						},
+						"description": "Actualiza una promocion. Solo envia los campos que deseas modificar."
+					}
+				},
+				{
+					"name": "Deactivate Promotion",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"is_active\": false\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}/{{PROMO_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
+						},
+						"description": "Desactiva una promocion sin eliminarla."
 					}
 				},
 				{
@@ -506,19 +641,15 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/promotions/{{PROMOTION_ID}}",
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}/{{PROMO_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["promotions", "{{PROMOTION_ID}}"]
-						}
+							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
+						},
+						"description": "Elimina permanentemente una promocion."
 					}
-				}
-			]
-		},
-		{
-			"name": "🛒 Reservations",
-			"item": [
+				},
 				{
-					"name": "Create Reservation",
+					"name": "Validate Promotion Code (Public)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -526,18 +657,80 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"unit_ids\": [1, 2, 3],\n    \"promotion_code\": \"DESCUENTO20\"\n}"
+							"raw": "{\n    \"promotion_code\": \"EARLY20\",\n    \"area_id\": {{AREA_ID}},\n    \"quantity\": 2\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/validate",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "validate"]
+						},
+						"description": "Valida un codigo promocional contra un area especifica. Endpoint publico (no requiere autenticacion).\n\n**Validaciones:**\n- Codigo existe\n- Promocion activa\n- Dentro de fechas de vigencia\n- Cantidad minima de tickets\n- Usos disponibles\n- Area coincide"
+					}
+				},
+				{
+					"name": "Calculate Price (Public)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"quantity\": 2,\n    \"promotion_code\": \"EARLY20\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/calculate-price",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "calculate-price"]
+						},
+						"description": "Calcula el precio final con todos los descuentos aplicados. Endpoint publico.\n\n**Incluye:**\n- Precio base del area\n- Descuento de etapa de venta (automatico)\n- Descuento de promocion (si se proporciona codigo valido)\n- Tarifa de servicio"
+					}
+				}
+			]
+		},
+		{
+			"name": "Reservations",
+			"description": "Sistema de reservaciones con timeout de 8 minutos. El email es obligatorio - si no existe el perfil se crea automaticamente.",
+			"item": [
+				{
+					"name": "Create Reservation (Public)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cluster_id\": {{EVENT_ID}},\n    \"unit_ids\": [35766, 35767],\n    \"email\": \"cliente@ejemplo.com\",\n    \"promotion_code\": \"EARLY20\"\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/reservations",
 							"host": ["{{BASE_URL}}"],
 							"path": ["reservations"]
 						},
-						"description": "Crea una reserva con timeout de 15 minutos"
+						"description": "Crea una reservacion (endpoint publico, no requiere autenticacion).\n\n**Campos:**\n- `cluster_id`: ID del evento\n- `unit_ids`: Array de IDs de unidades a reservar (max 20)\n- `email`: Email del cliente (obligatorio). Si no existe el perfil, se crea automaticamente.\n- `promotion_code`: Codigo promocional (opcional)\n\n**Comportamiento:**\n- Las unidades se bloquean por 8 minutos\n- Si no se paga en 8 minutos, el cron libera las unidades automaticamente\n- El perfil se crea con datos genericos si no existe"
 					}
 				},
 				{
-					"name": "Get Reservation",
+					"name": "List My Reservations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/reservations?status=pending&limit=50&offset=0",
+							"host": ["{{BASE_URL}}"],
+							"path": ["reservations"],
+							"query": [
+								{"key": "status", "value": "pending", "description": "Filtrar por estado (pending, active, completed, cancelled, expired)", "disabled": true},
+								{"key": "limit", "value": "50"},
+								{"key": "offset", "value": "0"}
+							]
+						},
+						"description": "Lista todas las reservaciones del usuario autenticado. Requiere autenticacion."
+					}
+				},
+				{
+					"name": "Get Reservation by ID",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -545,25 +738,21 @@
 							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["reservations", "{{RESERVATION_ID}}"]
-						}
+						},
+						"description": "Obtiene detalles de una reservacion. Requiere autenticacion y que el usuario sea el dueño de la reservacion."
 					}
 				},
 				{
-					"name": "Confirm Reservation",
+					"name": "Get Reservation Timeout",
 					"request": {
-						"method": "POST",
-						"header": [
-							{"key": "Content-Type", "value": "application/json"}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"payment_reference\": \"wompi_transaction_id\"\n}"
-						},
+						"method": "GET",
+						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}/confirm",
+							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}/timeout",
 							"host": ["{{BASE_URL}}"],
-							"path": ["reservations", "{{RESERVATION_ID}}", "confirm"]
-						}
+							"path": ["reservations", "{{RESERVATION_ID}}", "timeout"]
+						},
+						"description": "Obtiene informacion del tiempo restante para una reservacion pendiente.\n\n**Respuesta:**\n- `created_at`: Fecha de creacion\n- `expires_at`: Fecha de expiracion\n- `seconds_remaining`: Segundos restantes\n- `is_expired`: Si ya expiro"
 					}
 				},
 				{
@@ -575,7 +764,8 @@
 							"raw": "{{BASE_URL}}/reservations/{{RESERVATION_ID}}/cancel",
 							"host": ["{{BASE_URL}}"],
 							"path": ["reservations", "{{RESERVATION_ID}}", "cancel"]
-						}
+						},
+						"description": "Cancela una reservacion y libera las unidades. Solo se puede cancelar reservaciones con status 'pending' o 'active'. Requiere autenticacion."
 					}
 				},
 				{
@@ -587,28 +777,18 @@
 							"raw": "{{BASE_URL}}/reservations/my-tickets",
 							"host": ["{{BASE_URL}}"],
 							"path": ["reservations", "my-tickets"]
-						}
-					}
-				},
-				{
-					"name": "Get Ticket Detail",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/reservations/ticket/{{RESERVATION_UNIT_ID}}",
-							"host": ["{{BASE_URL}}"],
-							"path": ["reservations", "ticket", "{{RESERVATION_UNIT_ID}}"]
-						}
+						},
+						"description": "Obtiene todos los tickets confirmados del usuario autenticado. Solo muestra tickets con status 'confirmed' o 'used'."
 					}
 				}
 			]
 		},
 		{
-			"name": "💳 Payments",
+			"name": "Payments",
+			"description": "Sistema de pagos multi-gateway. Soporta Bold, Wompi y MercadoPago (proximamente). Los endpoints de creacion y status son publicos.",
 			"item": [
 				{
-					"name": "Create Payment Intent",
+					"name": "Create Payment Intent (Public)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -616,17 +796,31 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"reservation_id\": {{RESERVATION_ID}},\n    \"payment_method\": \"card\"\n}"
+							"raw": "{\n    \"reservation_id\": \"{{RESERVATION_ID}}\",\n    \"gateway\": \"bold\",\n    \"customer_email\": \"cliente@ejemplo.com\",\n    \"customer_name\": \"Juan Perez\",\n    \"return_url\": \"https://miapp.com/checkout/result\"\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/payments/intent",
 							"host": ["{{BASE_URL}}"],
 							"path": ["payments", "intent"]
-						}
+						},
+						"description": "Crea una intencion de pago (endpoint publico, no requiere autenticacion).\n\n**Gateways soportados:**\n- `bold` - Bold.co (default)\n- `wompi` - Wompi.co\n\n**Campos:**\n- `reservation_id`: UUID de la reservacion\n- `gateway`: Pasarela de pago (bold, wompi)\n- `customer_email`: Email del cliente\n- `customer_name`: Nombre del cliente (opcional)\n- `return_url`: URL de retorno post-pago (opcional)\n\n**Respuesta:**\n- `payment_id`: ID interno del pago\n- `gateway`: Gateway utilizado\n- `checkout_url`: URL para redirigir al cliente\n- `gateway_order_id`: ID de la orden en la pasarela\n- `expires_at`: Tiempo de expiracion"
 					}
 				},
 				{
-					"name": "Get Payment Status",
+					"name": "Check Payment Status (Public)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/payments/{{PAYMENT_ID}}/status",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "{{PAYMENT_ID}}", "status"]
+						},
+						"description": "Consulta el estado actual del pago (endpoint publico).\n\nTambien consulta el gateway para obtener el ultimo estado."
+					}
+				},
+				{
+					"name": "Get Payment Details (Auth)",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -634,32 +828,79 @@
 							"raw": "{{BASE_URL}}/payments/{{PAYMENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["payments", "{{PAYMENT_ID}}"]
-						}
+						},
+						"description": "Obtiene detalles completos de un pago. Requiere autenticacion y que el usuario sea el dueño de la reservacion."
 					}
 				},
 				{
-					"name": "Wompi Webhook",
+					"name": "Get Payments by Reservation (Auth)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/payments/reservation/{{RESERVATION_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "reservation", "{{RESERVATION_ID}}"]
+						},
+						"description": "Lista todos los pagos de una reservacion. Requiere autenticacion."
+					}
+				},
+				{
+					"name": "Simulate Payment (Sandbox)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/payments/simulate/{{PAYMENT_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "simulate", "{{PAYMENT_ID}}"]
+						},
+						"description": "Simula la aprobacion de un pago (SOLO SANDBOX).\n\nUtil para testing sin pasar por el checkout real.\n\n**Comportamiento:**\n- Marca el pago como aprobado\n- Confirma la reservacion\n- Marca las unidades como vendidas\n- Retorna los tickets del usuario"
+					}
+				},
+				{
+					"name": "Webhook - Bold",
 					"request": {
 						"method": "POST",
 						"header": [
 							{"key": "Content-Type", "value": "application/json"},
-							{"key": "X-Event-Checksum", "value": "{{WOMPI_CHECKSUM}}"}
+							{"key": "x-bold-signature", "value": "{{BOLD_SIGNATURE}}"}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"event\": \"transaction.updated\",\n    \"data\": {\n        \"transaction\": {\n            \"id\": \"xxxxx\",\n            \"status\": \"APPROVED\",\n            \"reference\": \"{{RESERVATION_ID}}\"\n        }\n    },\n    \"signature\": {\n        \"checksum\": \"{{WOMPI_CHECKSUM}}\"\n    }\n}"
+							"raw": "{\n    \"transaction\": {\n        \"payment_link\": \"LNK_XXXXX\",\n        \"status\": \"PAID\",\n        \"transaction_id\": \"TRX_XXXXX\",\n        \"payment_method\": \"CREDIT_CARD\"\n    }\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/payments/webhook/wompi",
+							"raw": "{{BASE_URL}}/payments/webhooks/bold",
 							"host": ["{{BASE_URL}}"],
-							"path": ["payments", "webhook", "wompi"]
-						}
+							"path": ["payments", "webhooks", "bold"]
+						},
+						"description": "Webhook para notificaciones de Bold.\n\nBold envia eventos cuando el estado de la transaccion cambia."
+					}
+				},
+				{
+					"name": "Webhook - Wompi",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event\": \"transaction.updated\",\n    \"data\": {\n        \"transaction\": {\n            \"id\": \"xxxxx\",\n            \"status\": \"APPROVED\",\n            \"reference\": \"WT-abc12345-1234567890\"\n        }\n    },\n    \"timestamp\": 1234567890,\n    \"signature\": {\n        \"properties\": [\"id\", \"status\", \"reference\"],\n        \"checksum\": \"{{WOMPI_CHECKSUM}}\"\n    },\n    \"sent_at\": \"2026-01-12T00:00:00Z\",\n    \"environment\": \"sandbox\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/payments/webhooks/wompi",
+							"host": ["{{BASE_URL}}"],
+							"path": ["payments", "webhooks", "wompi"]
+						},
+						"description": "Webhook para notificaciones de Wompi.\n\nWompi envia eventos transaction.updated con firma para verificacion."
 					}
 				}
 			]
 		},
 		{
-			"name": "📱 QR Codes",
+			"name": "QR Codes",
 			"item": [
 				{
 					"name": "Get Ticket QR",
@@ -734,7 +975,7 @@
 			]
 		},
 		{
-			"name": "🔄 Transfers",
+			"name": "Transfers",
 			"item": [
 				{
 					"name": "Initiate Transfer",
@@ -823,7 +1064,7 @@
 			]
 		},
 		{
-			"name": "📈 Dashboard",
+			"name": "Dashboard",
 			"item": [
 				{
 					"name": "Get Overview",
@@ -920,7 +1161,7 @@
 			]
 		},
 		{
-			"name": "🌐 Public",
+			"name": "Public",
 			"item": [
 				{
 					"name": "List Public Events",
@@ -983,7 +1224,7 @@
 			]
 		},
 		{
-			"name": "🏥 Health",
+			"name": "Health",
 			"item": [
 				{
 					"name": "Root",

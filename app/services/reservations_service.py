@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -67,6 +68,13 @@ async def get_reservation_by_id(reservation_id: str, user_id: str) -> Optional[R
             return None
 
         reservation_dict = dict(row)
+        # Convert UUIDs to strings
+        for uuid_field in ['id', 'user_id']:
+            if reservation_dict.get(uuid_field) is not None:
+                reservation_dict[uuid_field] = str(reservation_dict[uuid_field])
+        # Parse extra_attributes JSON string to dict
+        if reservation_dict.get('extra_attributes') and isinstance(reservation_dict['extra_attributes'], str):
+            reservation_dict['extra_attributes'] = json.loads(reservation_dict['extra_attributes'])
 
         # Get cluster info
         cluster_info = await conn.fetchrow("""
@@ -99,6 +107,10 @@ async def get_reservation_by_id(reservation_id: str, user_id: str) -> Optional[R
 
         for unit in units:
             unit_dict = dict(unit)
+            # Convert UUIDs to strings
+            for uuid_field in ['reservation_id', 'original_user_id', 'applied_promotion_id', 'applied_area_sale_stage_id']:
+                if unit_dict.get(uuid_field) is not None:
+                    unit_dict[uuid_field] = str(unit_dict[uuid_field])
             unit_dict['unit_display_name'] = f"{unit['nomenclature_letter_area'] or ''}-{unit['nomenclature_number_unit'] or unit['id']}".strip('-')
             unit_dict['final_price'] = unit['base_price']  # TODO: Apply discounts
             subtotal += Decimal(str(unit['base_price']))
@@ -113,9 +125,43 @@ async def get_reservation_by_id(reservation_id: str, user_id: str) -> Optional[R
         return Reservation(**reservation_dict)
 
 
-async def create_reservation(user_id: str, data: ReservationCreate) -> CreateReservationResponse:
-    """Create a new reservation"""
+async def get_or_create_user(conn, email: str) -> str:
+    """Get existing user by email or create a new profile"""
+    email = email.lower().strip()
+
+    # Check if user exists
+    existing = await conn.fetchrow(
+        "SELECT id FROM profile WHERE email = $1",
+        email
+    )
+
+    if existing:
+        return str(existing['id'])
+
+    # Create new profile with generic defaults
+    new_user = await conn.fetchrow("""
+        INSERT INTO profile (
+            email, name, phone_number, nationality_id,
+            created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, NOW(), NOW())
+        RETURNING id
+    """,
+        email,
+        email.split('@')[0],  # Use email prefix as name
+        '0000000000',         # Generic phone
+        1                     # Default nationality (Colombia)
+    )
+
+    logger.info(f"Created new profile for {email}: {new_user['id']}")
+    return str(new_user['id'])
+
+
+async def create_reservation(user_id: Optional[str], data: ReservationCreate) -> CreateReservationResponse:
+    """Create a new reservation (public endpoint)"""
     async with get_db_connection() as conn:
+        # Get or create user from email (ignores user_id parameter)
+        user_id = await get_or_create_user(conn, data.email)
+
         # Verify units are available and belong to same event
         units_info = await conn.fetch("""
             SELECT u.id, u.status, u.area_id, a.cluster_id, a.price, c.start_date, c.end_date
@@ -168,7 +214,7 @@ async def create_reservation(user_id: str, data: ReservationCreate) -> CreateRes
                 $1, NOW(), $2, $3, 'pending', $4, NOW()
             )
             RETURNING *
-        """, user_id, event_start, event_end, data.model_dump())
+        """, user_id, event_start, event_end, json.dumps(data.model_dump()))
 
         reservation_id = str(reservation_row['id'])
 
@@ -180,7 +226,7 @@ async def create_reservation(user_id: str, data: ReservationCreate) -> CreateRes
         promotion_id = None
         if data.promotion_code:
             promo = await conn.fetchrow(
-                "SELECT id FROM promotions WHERE promotion_code = $1",
+                "SELECT id FROM area_promotions WHERE promotion_code = $1",
                 data.promotion_code.upper().strip()
             )
             promotion_id = str(promo['id']) if promo else None
@@ -190,7 +236,7 @@ async def create_reservation(user_id: str, data: ReservationCreate) -> CreateRes
             await conn.execute("""
                 INSERT INTO reservation_units (
                     reservation_id, unit_id, status, original_user_id,
-                    applied_sale_stage_id, applied_promotion_id, updated_at
+                    applied_area_sale_stage_id, applied_promotion_id, updated_at
                 ) VALUES ($1, $2, 'reserved', $3, $4, $5, NOW())
             """, reservation_id, unit['id'], user_id, sale_stage_id, promotion_id)
 
@@ -202,17 +248,17 @@ async def create_reservation(user_id: str, data: ReservationCreate) -> CreateRes
 
         logger.info(f"Created reservation {reservation_id} for user {user_id} with {len(data.unit_ids)} units")
 
-        # Get full reservation
-        reservation = await get_reservation_by_id(reservation_id, user_id)
+    # Get full reservation (outside transaction so it can see committed data)
+    reservation = await get_reservation_by_id(reservation_id, user_id)
 
-        # Calculate expiration
-        expires_at = datetime.now() + timedelta(minutes=RESERVATION_TIMEOUT_MINUTES)
+    # Calculate expiration
+    expires_at = datetime.now() + timedelta(minutes=RESERVATION_TIMEOUT_MINUTES)
 
-        return CreateReservationResponse(
-            reservation=reservation,
-            expires_at=expires_at,
-            payment_url=None  # Will be set when payment is initiated
-        )
+    return CreateReservationResponse(
+        reservation=reservation,
+        expires_at=expires_at,
+        payment_url=None  # Will be set when payment is initiated
+    )
 
 
 async def cancel_reservation(reservation_id: str, user_id: str) -> bool:

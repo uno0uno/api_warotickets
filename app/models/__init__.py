@@ -17,11 +17,17 @@ from app.models.sale_stage import (
     SaleStage, SaleStageCreate, SaleStageUpdate, SaleStageSummary,
     ActiveSaleStage, PriceAdjustmentType
 )
-from app.models.promotion import (
-    Promotion, PromotionCreate, PromotionUpdate, PromotionSummary,
-    PromotionValidation, ApplyPromotionRequest, CalculatedPrice,
-    DiscountType, AppliesTo
+from app.models.area_promotion import (
+    AreaPromotion, AreaPromotionCreate, AreaPromotionUpdate, AreaPromotionSummary,
+    PromotionValidation, ValidatePromotionRequest, CalculatePriceRequest, CalculatedPrice,
+    DiscountType
 )
+# Aliases for backwards compatibility
+Promotion = AreaPromotion
+PromotionCreate = AreaPromotionCreate
+PromotionUpdate = AreaPromotionUpdate
+PromotionSummary = AreaPromotionSummary
+ApplyPromotionRequest = ValidatePromotionRequest
 from app.models.reservation import (
     Reservation, ReservationCreate, ReservationUpdate, ReservationSummary,
     ReservationUnit, CreateReservationResponse, ReservationTimeout,

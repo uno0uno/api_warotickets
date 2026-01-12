@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
@@ -35,6 +35,7 @@ class ReservationCreate(BaseModel):
     cluster_id: int = Field(..., description="ID del evento")
     unit_ids: List[int] = Field(..., min_length=1, max_length=20, description="IDs de unidades a reservar")
     promotion_code: Optional[str] = Field(None, description="Codigo promocional")
+    email: EmailStr = Field(..., description="Correo electronico del cliente")
 
 
 class ReservationUpdate(BaseModel):

@@ -1,9 +1,9 @@
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 from decimal import Decimal
 from datetime import datetime
 from app.database import get_db_connection
-from app.models.promotion import CalculatedPrice, PromotionValidation
+from app.models.area_promotion import CalculatedPrice, PromotionValidation
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,11 @@ async def calculate_price(
         currency = area['currency'] or 'COP'
         service_percentage = Decimal(str(area['service'] or 0))
 
-        # Get active sale stage
+        # Get active sale stage from area_sale_stages
         sale_stage = await conn.fetchrow("""
             SELECT id, stage_name, price_adjustment_type, price_adjustment_value
-            FROM sale_stages
-            WHERE (target_area_id = $1 OR target_area_id IS NULL)
+            FROM area_sale_stages
+            WHERE area_id = $1
               AND is_active = true
               AND start_time <= NOW()
               AND (end_time IS NULL OR end_time > NOW())
@@ -110,18 +110,17 @@ async def calculate_price(
 
 async def validate_promotion_code(
     code: str,
-    area_id: Optional[int] = None,
-    cluster_id: Optional[int] = None,
+    area_id: int,
     quantity: int = 1
 ) -> PromotionValidation:
-    """Validate a promotion code"""
+    """Validate a promotion code against the area_promotions table"""
     async with get_db_connection(use_transaction=False) as conn:
-        # Find promotion by code
+        # Find promotion by code in area_promotions
         promo = await conn.fetchrow("""
             SELECT id, promotion_name, discount_type, discount_value,
-                   applies_to, target_cluster_id, target_area_id,
-                   min_quantity, max_discount_amount, start_date, end_date, is_active
-            FROM promotions
+                   area_id, min_quantity, max_discount_amount,
+                   quantity_available, start_time, end_time, is_active
+            FROM area_promotions
             WHERE promotion_code = $1
         """, code.upper().strip())
 
@@ -139,14 +138,14 @@ async def validate_promotion_code(
             )
 
         # Check dates
-        now = datetime.now(promo['start_date'].tzinfo)
-        if now < promo['start_date']:
+        now = datetime.now(promo['start_time'].tzinfo)
+        if now < promo['start_time']:
             return PromotionValidation(
                 is_valid=False,
                 error_message="Este codigo aun no esta vigente"
             )
 
-        if now > promo['end_date']:
+        if promo['end_time'] and now > promo['end_time']:
             return PromotionValidation(
                 is_valid=False,
                 error_message="Este codigo ha expirado"
@@ -159,22 +158,19 @@ async def validate_promotion_code(
                 error_message=f"Se requieren minimo {promo['min_quantity']} tickets"
             )
 
-        # Check target restrictions
-        applies_to = promo['applies_to']
+        # Check available uses
+        if promo['quantity_available'] is not None and promo['quantity_available'] < quantity:
+            return PromotionValidation(
+                is_valid=False,
+                error_message="No hay suficientes usos disponibles para este codigo"
+            )
 
-        if applies_to == 'cluster' and promo['target_cluster_id']:
-            if cluster_id and cluster_id != promo['target_cluster_id']:
-                return PromotionValidation(
-                    is_valid=False,
-                    error_message="Este codigo no aplica para este evento"
-                )
-
-        if applies_to == 'area' and promo['target_area_id']:
-            if area_id and area_id != promo['target_area_id']:
-                return PromotionValidation(
-                    is_valid=False,
-                    error_message="Este codigo no aplica para esta localidad"
-                )
+        # Check area match - promotions are now directly linked to areas
+        if promo['area_id'] != area_id:
+            return PromotionValidation(
+                is_valid=False,
+                error_message="Este codigo no aplica para esta localidad"
+            )
 
         return PromotionValidation(
             is_valid=True,
@@ -192,8 +188,8 @@ async def get_active_sale_stage(area_id: int) -> Optional[dict]:
         stage = await conn.fetchrow("""
             SELECT id, stage_name, price_adjustment_type, price_adjustment_value,
                    quantity_available, start_time, end_time, priority_order
-            FROM sale_stages
-            WHERE (target_area_id = $1 OR target_area_id IS NULL)
+            FROM area_sale_stages
+            WHERE area_id = $1
               AND is_active = true
               AND start_time <= NOW()
               AND (end_time IS NULL OR end_time > NOW())
@@ -205,15 +201,50 @@ async def get_active_sale_stage(area_id: int) -> Optional[dict]:
         return dict(stage) if stage else None
 
 
+async def get_active_promotion(area_id: int) -> Optional[dict]:
+    """Get currently active promotion for an area (without code)"""
+    async with get_db_connection(use_transaction=False) as conn:
+        promo = await conn.fetchrow("""
+            SELECT id, promotion_name, promotion_code, discount_type, discount_value,
+                   max_discount_amount, quantity_available, end_time
+            FROM area_promotions
+            WHERE area_id = $1
+              AND is_active = true
+              AND start_time <= NOW()
+              AND (end_time IS NULL OR end_time > NOW())
+              AND (quantity_available IS NULL OR quantity_available > 0)
+              AND promotion_code IS NULL
+            ORDER BY priority_order ASC
+            LIMIT 1
+        """, area_id)
+
+        return dict(promo) if promo else None
+
+
 async def decrement_sale_stage_quantity(stage_id: str, quantity: int = 1) -> bool:
     """Decrement available quantity in a sale stage after purchase"""
     async with get_db_connection() as conn:
         result = await conn.execute("""
-            UPDATE sale_stages
+            UPDATE area_sale_stages
             SET quantity_available = quantity_available - $2,
                 updated_at = NOW()
             WHERE id = $1 AND quantity_available >= $2
         """, stage_id, quantity)
+
+        return result == "UPDATE 1"
+
+
+async def decrement_promotion_quantity(promo_id: str, quantity: int = 1) -> bool:
+    """Decrement available quantity in a promotion after use"""
+    async with get_db_connection() as conn:
+        result = await conn.execute("""
+            UPDATE area_promotions
+            SET quantity_available = quantity_available - $2,
+                updated_at = NOW()
+            WHERE id = $1
+              AND quantity_available IS NOT NULL
+              AND quantity_available >= $2
+        """, promo_id, quantity)
 
         return result == "UPDATE 1"
 

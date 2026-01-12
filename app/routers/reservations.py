@@ -76,22 +76,22 @@ async def get_reservation_timeout(
 
 
 @router.post("", response_model=CreateReservationResponse, status_code=201)
-async def create_reservation(
-    data: ReservationCreate,
-    user: AuthenticatedUser = Depends(get_authenticated_user)
-):
+async def create_reservation(data: ReservationCreate):
     """
-    Create a new reservation.
+    Create a new reservation (public endpoint).
+
+    Requires customer email - will create profile if doesn't exist.
 
     This will:
-    1. Verify units are available
-    2. Reserve the units (block them)
-    3. Calculate pricing with any applicable discounts
-    4. Return reservation with payment deadline
+    1. Get or create user profile from email
+    2. Verify units are available
+    3. Reserve the units (block them)
+    4. Calculate pricing with any applicable discounts
+    5. Return reservation with payment deadline
 
     The reservation will expire if not paid within 15 minutes.
     """
-    response = await reservations_service.create_reservation(user.user_id, data)
+    response = await reservations_service.create_reservation(None, data)
     return response
 
 

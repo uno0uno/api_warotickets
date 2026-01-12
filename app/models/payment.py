@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Any
 from datetime import datetime
 from decimal import Decimal
@@ -15,12 +15,21 @@ class PaymentStatus(str, Enum):
     REFUNDED = "refunded"
 
 
+class PaymentGateway(str, Enum):
+    """Pasarelas de pago soportadas"""
+    BOLD = "bold"
+    WOMPI = "wompi"
+    MERCADOPAGO = "mercadopago"
+
+
 class PaymentMethodType(str, Enum):
     """Tipos de metodo de pago"""
     CARD = "CARD"
+    CREDIT_CARD = "CREDIT_CARD"
     NEQUI = "NEQUI"
     PSE = "PSE"
     BANCOLOMBIA_TRANSFER = "BANCOLOMBIA_TRANSFER"
+    BOTON_BANCOLOMBIA = "BOTON_BANCOLOMBIA"
     CASH = "CASH"
 
 
@@ -32,12 +41,12 @@ class PaymentBase(BaseModel):
 
 
 class PaymentCreate(BaseModel):
-    """Schema para iniciar pago"""
+    """Schema para iniciar pago (publico, sin auth)"""
     reservation_id: str = Field(..., description="ID de la reservacion")
-    payment_method_type: PaymentMethodType = Field(..., description="Tipo de metodo de pago")
-    customer_email: str = Field(..., description="Email del cliente")
-    customer_data: Optional[dict] = Field(None, description="Datos adicionales del cliente")
-    billing_data: Optional[dict] = Field(None, description="Datos de facturacion")
+    gateway: PaymentGateway = Field(default=PaymentGateway.BOLD, description="Pasarela de pago")
+    customer_email: EmailStr = Field(..., description="Email del cliente")
+    customer_name: Optional[str] = Field(None, description="Nombre del cliente")
+    customer_phone: Optional[str] = Field(None, description="Telefono del cliente")
     return_url: Optional[str] = Field(None, description="URL de retorno post-pago")
 
 
@@ -60,6 +69,8 @@ class Payment(PaymentBase):
     environment: Optional[str] = None
     updated_at: datetime
     order_id: Optional[str] = None
+    gateway_name: Optional[str] = None
+    gateway_order_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -117,12 +128,13 @@ class PaymentIntentResponse(BaseModel):
     """Respuesta al crear intencion de pago"""
     payment_id: int
     reservation_id: str
+    gateway: str
     amount: Decimal
     amount_in_cents: int
     currency: str
     reference: str
     checkout_url: Optional[str] = None
-    public_key: Optional[str] = None
+    gateway_order_id: Optional[str] = None
     expires_at: datetime
 
 

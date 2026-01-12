@@ -26,9 +26,8 @@ class AreaBase(BaseModel):
 
 
 class AreaCreate(AreaBase):
-    """Schema para crear un area"""
-    cluster_id: int = Field(..., description="ID del evento al que pertenece")
-    auto_generate_units: bool = Field(default=True, description="Generar unidades automaticamente")
+    """Schema para crear un area - units se generan automaticamente basado en capacity"""
+    pass
 
 
 class AreaUpdate(BaseModel):

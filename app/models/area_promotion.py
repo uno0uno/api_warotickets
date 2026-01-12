@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -11,83 +11,72 @@ class DiscountType(str, Enum):
     FIXED = "fixed"            # Monto fijo de descuento
 
 
-class AppliesTo(str, Enum):
-    """A que aplica la promocion"""
-    ALL = "all"           # Todos los productos/areas
-    CLUSTER = "cluster"   # Evento especifico
-    AREA = "area"         # Area especifica
-    PRODUCT = "product"   # Producto especifico
-
-
-class PromotionBase(BaseModel):
-    """Campos base de promocion"""
+class AreaPromotionBase(BaseModel):
+    """Campos base de promocion para areas"""
     promotion_name: str = Field(..., min_length=1, max_length=100, description="Nombre de la promocion")
     promotion_code: Optional[str] = Field(None, max_length=50, description="Codigo promocional (ej: DESCUENTO20)")
-    description: Optional[str] = Field(None, description="Descripcion")
-    discount_type: DiscountType = Field(..., description="Tipo: percentage o fixed")
+    description: Optional[str] = Field(None, description="Descripcion de la promocion")
+    discount_type: DiscountType = Field(..., description="Tipo de descuento: percentage o fixed")
     discount_value: Decimal = Field(..., gt=0, description="Valor del descuento")
-    applies_to: AppliesTo = Field(default=AppliesTo.ALL, description="A que aplica")
-    min_quantity: int = Field(default=1, ge=1, description="Cantidad minima para aplicar")
     max_discount_amount: Optional[Decimal] = Field(None, description="Descuento maximo (para porcentajes)")
-    start_date: datetime = Field(..., description="Inicio de vigencia")
-    end_date: datetime = Field(..., description="Fin de vigencia")
+    min_quantity: int = Field(default=1, ge=1, description="Cantidad minima de tickets para aplicar")
+    quantity_available: Optional[int] = Field(None, ge=0, description="Cantidad de usos disponibles (None = ilimitado)")
+    start_time: datetime = Field(..., description="Inicio de vigencia")
+    end_time: Optional[datetime] = Field(None, description="Fin de vigencia (None = sin fin)")
+    priority_order: int = Field(default=0, description="Orden de prioridad (menor = mayor prioridad)")
 
 
-class PromotionCreate(PromotionBase):
+class AreaPromotionCreate(AreaPromotionBase):
     """Schema para crear promocion"""
-    target_cluster_id: Optional[int] = Field(None, description="Evento especifico")
-    target_area_id: Optional[int] = Field(None, description="Area especifica")
-    target_product_id: Optional[str] = Field(None, description="Producto especifico")
-    target_product_variant_id: Optional[str] = Field(None, description="Variante especifica")
-    max_uses: Optional[int] = Field(None, description="Usos maximos totales")
-    max_uses_per_user: Optional[int] = Field(None, description="Usos maximos por usuario")
+    area_id: int = Field(..., description="ID del area")
 
 
-class PromotionUpdate(BaseModel):
+class AreaPromotionUpdate(BaseModel):
     """Schema para actualizar promocion"""
     promotion_name: Optional[str] = None
     promotion_code: Optional[str] = None
     description: Optional[str] = None
     discount_type: Optional[DiscountType] = None
     discount_value: Optional[Decimal] = None
-    applies_to: Optional[AppliesTo] = None
-    min_quantity: Optional[int] = None
     max_discount_amount: Optional[Decimal] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    min_quantity: Optional[int] = None
+    quantity_available: Optional[int] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
     is_active: Optional[bool] = None
-    target_cluster_id: Optional[int] = None
-    target_area_id: Optional[int] = None
+    priority_order: Optional[int] = None
 
 
-class Promotion(PromotionBase):
+class AreaPromotion(AreaPromotionBase):
     """Schema completo de promocion"""
     id: str  # UUID
-    target_cluster_id: Optional[int] = None
-    target_area_id: Optional[int] = None
-    target_product_id: Optional[str] = None
-    target_product_variant_id: Optional[str] = None
+    area_id: int
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
 
     # Campos calculados
-    times_used: Optional[int] = None
     is_currently_valid: Optional[bool] = None
+
+    # Campos de contexto (opcionales, para respuestas enriquecidas)
+    area_name: Optional[str] = None
+    cluster_id: Optional[int] = None
 
     class Config:
         from_attributes = True
 
 
-class PromotionSummary(BaseModel):
-    """Schema resumido"""
+class AreaPromotionSummary(BaseModel):
+    """Schema resumido de promocion"""
     id: str
+    area_id: int
+    area_name: Optional[str] = None
     promotion_name: str
     promotion_code: Optional[str] = None
     discount_type: str
     discount_value: Decimal
-    start_date: datetime
-    end_date: datetime
+    start_time: datetime
+    end_time: Optional[datetime] = None
     is_active: bool
     is_currently_valid: bool
 
@@ -106,12 +95,18 @@ class PromotionValidation(BaseModel):
     error_message: Optional[str] = None
 
 
-class ApplyPromotionRequest(BaseModel):
-    """Request para aplicar codigo promocional"""
+class ValidatePromotionRequest(BaseModel):
+    """Request para validar codigo promocional"""
     promotion_code: str = Field(..., min_length=1, max_length=50)
-    area_id: Optional[int] = None
-    cluster_id: Optional[int] = None
+    area_id: int = Field(..., description="ID del area")
     quantity: int = Field(default=1, ge=1)
+
+
+class CalculatePriceRequest(BaseModel):
+    """Request para calcular precio"""
+    area_id: int = Field(..., description="ID del area")
+    quantity: int = Field(default=1, ge=1)
+    promotion_code: Optional[str] = Field(None, max_length=50)
 
 
 class CalculatedPrice(BaseModel):

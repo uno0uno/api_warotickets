@@ -283,6 +283,7 @@ async def update_event(event_id: int, profile_id: str, tenant_id: str, data: Eve
         param_idx = 1
 
         update_data = data.model_dump(exclude_unset=True)
+
         for field, value in update_data.items():
             # Serialize extra_attributes dict to JSON string
             if field == 'extra_attributes' and isinstance(value, dict):
@@ -294,7 +295,7 @@ async def update_event(event_id: int, profile_id: str, tenant_id: str, data: Eve
         if not update_fields:
             return await get_event_by_id(event_id, profile_id, tenant_id)
 
-        update_fields.append(f"updated_at = NOW()")
+        update_fields.append("updated_at = NOW()")
 
         query = f"""
             UPDATE clusters
@@ -304,8 +305,7 @@ async def update_event(event_id: int, profile_id: str, tenant_id: str, data: Eve
         """
         params.extend([event_id, profile_id, tenant_id])
 
-        row = await conn.fetchrow(query, *params)
-        logger.info(f"Updated event: {event_id}")
+        await conn.fetchrow(query, *params)
 
         return await get_event_by_id(event_id, profile_id, tenant_id)
 

@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import Optional, List
 from decimal import Decimal
 from app.database import get_db_connection
@@ -11,17 +12,32 @@ from app.core.exceptions import ValidationError, DatabaseError
 logger = logging.getLogger(__name__)
 
 
+def _parse_extra_attributes(value):
+    """Parse extra_attributes from string to dict if needed"""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
 async def get_areas_by_event(
     cluster_id: int,
     profile_id: str,
+    tenant_id: str,
     include_stats: bool = True
 ) -> List[AreaSummary]:
     """Get all areas for an event with availability stats"""
     async with get_db_connection(use_transaction=False) as conn:
-        # Verify ownership
+        # Verify ownership and tenant
         event = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2",
-            cluster_id, profile_id
+            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            cluster_id, profile_id, tenant_id
         )
         if not event:
             return []
@@ -39,13 +55,13 @@ async def get_areas_by_event(
                 a.service,
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'available') as units_available,
                 (
-                    SELECT ss.stage_name FROM sale_stages ss
-                    WHERE (ss.target_area_id = a.id OR ss.target_area_id IS NULL)
-                      AND ss.is_active = true
-                      AND ss.start_time <= NOW()
-                      AND (ss.end_time IS NULL OR ss.end_time > NOW())
-                      AND ss.quantity_available > 0
-                    ORDER BY ss.priority_order ASC
+                    SELECT ass.stage_name FROM area_sale_stages ass
+                    WHERE ass.area_id = a.id
+                      AND ass.is_active = true
+                      AND ass.start_time <= NOW()
+                      AND (ass.end_time IS NULL OR ass.end_time > NOW())
+                      AND ass.quantity_available > 0
+                    ORDER BY ass.priority_order ASC
                     LIMIT 1
                 ) as active_sale_stage
             FROM areas a
@@ -66,8 +82,13 @@ async def get_areas_by_event(
         return areas
 
 
-async def get_area_by_id(area_id: int, profile_id: str) -> Optional[Area]:
-    """Get area by ID with ownership validation"""
+async def get_area_by_id(
+    cluster_id: int,
+    area_id: int,
+    profile_id: str,
+    tenant_id: str
+) -> Optional[Area]:
+    """Get area by ID with cluster, ownership and tenant validation"""
     async with get_db_connection(use_transaction=False) as conn:
         row = await conn.fetchrow("""
             SELECT a.*,
@@ -77,25 +98,37 @@ async def get_area_by_id(area_id: int, profile_id: str) -> Optional[Area]:
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'sold') as units_sold
             FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND c.profile_id = $2
-        """, area_id, profile_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
+        """, area_id, cluster_id, profile_id, tenant_id)
 
         if not row:
             return None
 
-        return Area(**dict(row))
+        area_dict = dict(row)
+        # Parse extra_attributes if it's a string
+        area_dict['extra_attributes'] = _parse_extra_attributes(area_dict.get('extra_attributes'))
+
+        return Area(**area_dict)
 
 
-async def create_area(profile_id: str, data: AreaCreate) -> Area:
+async def create_area(
+    cluster_id: int,
+    profile_id: str,
+    tenant_id: str,
+    data: AreaCreate
+) -> Area:
     """Create a new area for an event"""
     async with get_db_connection() as conn:
-        # Verify event ownership
+        # Verify event ownership and tenant
         event = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2",
-            data.cluster_id, profile_id
+            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            cluster_id, profile_id, tenant_id
         )
         if not event:
             raise ValidationError("Event not found or access denied")
+
+        # Serialize extra_attributes to JSON string
+        extra_attrs_json = json.dumps(data.extra_attributes) if data.extra_attributes else '{}'
 
         row = await conn.fetchrow("""
             INSERT INTO areas (
@@ -107,7 +140,7 @@ async def create_area(profile_id: str, data: AreaCreate) -> Area:
             )
             RETURNING *
         """,
-            data.cluster_id,
+            cluster_id,
             data.area_name,
             data.description,
             data.capacity,
@@ -116,37 +149,43 @@ async def create_area(profile_id: str, data: AreaCreate) -> Area:
             data.nomenclature_letter,
             data.unit_capacity,
             data.service,
-            data.extra_attributes or {}
+            extra_attrs_json
         )
 
         area_id = row['id']
-        logger.info(f"Created area: {area_id} - {data.area_name}")
+        logger.info(f"Created area: {area_id} - {data.area_name} (cluster: {cluster_id})")
 
-        # Auto-generate units if requested
-        if data.auto_generate_units:
-            await _generate_units_for_area(
-                conn, area_id, data.capacity,
-                data.nomenclature_letter or ""
-            )
+        # Always generate units based on capacity
+        await _generate_units_for_area(
+            conn, area_id, data.capacity,
+            data.nomenclature_letter or ""
+        )
 
         area_dict = dict(row)
-        area_dict['units_total'] = data.capacity if data.auto_generate_units else 0
-        area_dict['units_available'] = data.capacity if data.auto_generate_units else 0
+        area_dict['extra_attributes'] = _parse_extra_attributes(area_dict.get('extra_attributes'))
+        area_dict['units_total'] = data.capacity
+        area_dict['units_available'] = data.capacity
         area_dict['units_reserved'] = 0
         area_dict['units_sold'] = 0
 
         return Area(**area_dict)
 
 
-async def update_area(area_id: int, profile_id: str, data: AreaUpdate) -> Optional[Area]:
+async def update_area(
+    cluster_id: int,
+    area_id: int,
+    profile_id: str,
+    tenant_id: str,
+    data: AreaUpdate
+) -> Optional[Area]:
     """Update an existing area"""
     async with get_db_connection() as conn:
-        # Verify ownership
+        # Verify ownership, tenant and cluster
         existing = await conn.fetchrow("""
             SELECT a.id FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND c.profile_id = $2
-        """, area_id, profile_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
+        """, area_id, cluster_id, profile_id, tenant_id)
 
         if not existing:
             return None
@@ -157,13 +196,17 @@ async def update_area(area_id: int, profile_id: str, data: AreaUpdate) -> Option
         param_idx = 1
 
         update_data = data.model_dump(exclude_unset=True)
+
         for field, value in update_data.items():
+            # Serialize extra_attributes dict to JSON string
+            if field == 'extra_attributes' and isinstance(value, dict):
+                value = json.dumps(value)
             update_fields.append(f"{field} = ${param_idx}")
             params.append(value)
             param_idx += 1
 
         if not update_fields:
-            return await get_area_by_id(area_id, profile_id)
+            return await get_area_by_id(cluster_id, area_id, profile_id, tenant_id)
 
         update_fields.append("updated_at = NOW()")
 
@@ -176,22 +219,27 @@ async def update_area(area_id: int, profile_id: str, data: AreaUpdate) -> Option
         params.append(area_id)
 
         await conn.fetchrow(query, *params)
-        logger.info(f"Updated area: {area_id}")
 
-        return await get_area_by_id(area_id, profile_id)
+        return await get_area_by_id(cluster_id, area_id, profile_id, tenant_id)
 
 
-async def delete_area(area_id: int, profile_id: str) -> bool:
-    """Delete an area (only if no sold tickets)"""
+async def delete_area(
+    cluster_id: int,
+    area_id: int,
+    profile_id: str,
+    tenant_id: str
+) -> bool:
+    """Delete an area (only if no sold tickets or reservations)"""
     async with get_db_connection() as conn:
-        # Verify ownership and check for sold tickets
+        # Verify ownership, tenant, cluster and check for sold/reserved tickets
         check = await conn.fetchrow("""
             SELECT a.id,
-                (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'sold') as sold_count
+                (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'sold') as sold_count,
+                (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'reserved') as reserved_count
             FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND c.profile_id = $2
-        """, area_id, profile_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
+        """, area_id, cluster_id, profile_id, tenant_id)
 
         if not check:
             return False
@@ -202,6 +250,12 @@ async def delete_area(area_id: int, profile_id: str) -> bool:
                 {"sold_count": check['sold_count']}
             )
 
+        if check['reserved_count'] > 0:
+            raise ValidationError(
+                f"Cannot delete area with {check['reserved_count']} active reservations",
+                {"reserved_count": check['reserved_count']}
+            )
+
         # Delete units first
         await conn.execute("DELETE FROM units WHERE area_id = $1", area_id)
 
@@ -210,11 +264,11 @@ async def delete_area(area_id: int, profile_id: str) -> bool:
 
         deleted = result == "DELETE 1"
         if deleted:
-            logger.info(f"Deleted area: {area_id}")
+            logger.info(f"Deleted area: {area_id} (cluster: {cluster_id})")
         return deleted
 
 
-async def get_area_availability(area_id: int) -> Optional[AreaAvailability]:
+async def get_area_availability(cluster_id: int, area_id: int) -> Optional[AreaAvailability]:
     """Get availability info for an area (public)"""
     async with get_db_connection(use_transaction=False) as conn:
         row = await conn.fetchrow("""
@@ -228,8 +282,8 @@ async def get_area_availability(area_id: int) -> Optional[AreaAvailability]:
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'reserved') as reserved_units,
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'sold') as sold_units
             FROM areas a
-            WHERE a.id = $1 AND a.status = 'available'
-        """, area_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND a.status = 'available'
+        """, area_id, cluster_id)
 
         if not row:
             return None
@@ -242,8 +296,8 @@ async def get_area_availability(area_id: int) -> Optional[AreaAvailability]:
 
         # Get active sale stage name
         sale_stage = await conn.fetchrow("""
-            SELECT stage_name FROM sale_stages
-            WHERE (target_area_id = $1 OR target_area_id IS NULL)
+            SELECT stage_name FROM area_sale_stages
+            WHERE area_id = $1
               AND is_active = true
               AND start_time <= NOW()
               AND (end_time IS NULL OR end_time > NOW())
@@ -302,8 +356,8 @@ async def _calculate_current_price(conn, area_id: int, base_price: Decimal) -> D
     """Calculate current price with active sale stage"""
     sale_stage = await conn.fetchrow("""
         SELECT price_adjustment_type, price_adjustment_value
-        FROM sale_stages
-        WHERE (target_area_id = $1 OR target_area_id IS NULL)
+        FROM area_sale_stages
+        WHERE area_id = $1
           AND is_active = true
           AND start_time <= NOW()
           AND (end_time IS NULL OR end_time > NOW())
@@ -337,7 +391,7 @@ async def _generate_units_for_area(conn, area_id: int, capacity: int, prefix: st
             prefix,
             None,
             i,
-            {}
+            '{}'
         ))
 
     # Bulk insert
