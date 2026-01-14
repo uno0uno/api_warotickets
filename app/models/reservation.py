@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field, EmailStr
-from typing import Optional, List
+from pydantic import BaseModel, Field, EmailStr, field_validator
+from typing import Optional, List, Union
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from uuid import UUID
 
 
 class ReservationStatus(str, Enum):
@@ -65,6 +66,13 @@ class ReservationUnit(BaseModel):
     base_price: Optional[Decimal] = None
     final_price: Optional[Decimal] = None
 
+    @field_validator('reservation_id', 'original_user_id', 'applied_sale_stage_id', 'applied_promotion_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+
     class Config:
         from_attributes = True
 
@@ -93,6 +101,13 @@ class Reservation(ReservationBase):
     total: Decimal = Decimal("0")
     currency: str = "COP"
 
+    @field_validator('id', 'user_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+
     class Config:
         from_attributes = True
 
@@ -108,6 +123,13 @@ class ReservationSummary(BaseModel):
     total: Decimal
     currency: str
     reservation_date: datetime
+
+    @field_validator('id', 'user_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
 
     class Config:
         from_attributes = True
@@ -136,6 +158,13 @@ class ReservationTimeout(BaseModel):
     seconds_remaining: int
     is_expired: bool
 
+    @field_validator('reservation_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+
 
 class MyTicket(BaseModel):
     """Ticket del usuario"""
@@ -150,6 +179,13 @@ class MyTicket(BaseModel):
     status: str
     qr_code_url: Optional[str] = None
     can_transfer: bool = True
+
+    @field_validator('reservation_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
 
     class Config:
         from_attributes = True

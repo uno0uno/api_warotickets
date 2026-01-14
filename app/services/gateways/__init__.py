@@ -2,10 +2,12 @@
 from app.services.gateways.base import BaseGateway, PaymentIntent, WebhookResult
 from app.services.gateways.bold import BoldGateway
 from app.services.gateways.wompi import WompiGateway
+from app.services.gateways.mercadopago import MercadoPagoGateway
 
 GATEWAYS = {
     'bold': BoldGateway,
     'wompi': WompiGateway,
+    'mercadopago': MercadoPagoGateway,
 }
 
 def get_gateway(name: str) -> BaseGateway:

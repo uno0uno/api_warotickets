@@ -53,6 +53,48 @@ async def create_payment_intent(data: PaymentCreate):
     return intent
 
 
+@router.get("/checkout/result")
+async def checkout_result(id: str = None, env: str = None):
+    """
+    Handle Wompi redirect after checkout (PUBLIC).
+
+    Wompi redirects to: {redirect_url}?id=TRANSACTION_ID&env=test
+    This endpoint verifies the transaction and returns the result.
+
+    **Query Parameters:**
+    - `id`: Transaction ID from Wompi
+    - `env`: Environment (test/production)
+
+    **Returns:**
+    - Payment object with status
+    """
+    if not id:
+        raise HTTPException(status_code=400, detail="Missing transaction ID")
+
+    payment = await payments_service.verify_transaction(id)
+    return payment
+
+
+@router.get("/verify/{transaction_id}")
+async def verify_transaction(transaction_id: str):
+    """
+    Verify a transaction using the gateway's transaction ID (PUBLIC).
+
+    This endpoint is called after Wompi redirects the user with ?id=TRANSACTION_ID.
+    It queries the gateway to get the current status and updates our records.
+
+    **Flow:**
+    1. Wompi redirects to: your-site.com/checkout/result?id=TRANSACTION_ID
+    2. Frontend calls: GET /payments/verify/{transaction_id}
+    3. Backend queries Wompi and updates payment status
+
+    **Returns:**
+    - Payment object with updated status
+    """
+    payment = await payments_service.verify_transaction(transaction_id)
+    return payment
+
+
 @router.get("/{payment_id}/status", response_model=Payment)
 async def check_payment_status(payment_id: int):
     """

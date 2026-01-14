@@ -80,8 +80,12 @@ async def tenant_detection_middleware(request: Request, call_next):
     Sets request.state.tenant_context for use in endpoints
     """
     try:
-        # Skip tenant detection for health checks, docs and root endpoint
-        if request.url.path in ['/health', '/docs', '/redoc', '/openapi.json', '/']:
+        # Skip tenant detection for health checks, docs, webhooks and root endpoint
+        skip_paths = ['/health', '/docs', '/redoc', '/openapi.json', '/']
+        skip_prefixes = ['/payments/webhooks']
+
+        if request.url.path in skip_paths or any(request.url.path.startswith(p) for p in skip_prefixes):
+            request.state.tenant_context = TenantContext()
             response = await call_next(request)
             return response
 

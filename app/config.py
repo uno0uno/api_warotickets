@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     wompi_public_key: Optional[str] = Field(default=None, alias='WOMPI_PUBLIC_KEY')
     wompi_private_key: Optional[str] = Field(default=None, alias='WOMPI_PRIVATE_KEY')
     wompi_events_secret: Optional[str] = Field(default=None, alias='WOMPI_EVENTS_SECRET')
+    wompi_integrity_secret: Optional[str] = Field(default=None, alias='WOMPI_INTEGRITY_SECRET')
     wompi_environment: str = Field(default='sandbox', alias='WOMPI_ENVIRONMENT')
 
     # Bold - Pasarela de pagos (bold.co)
@@ -44,7 +45,14 @@ class Settings(BaseSettings):
     bold_secret_key: Optional[str] = Field(default=None, alias='BOLD_SECRET_KEY')
     bold_environment: str = Field(default='sandbox', alias='BOLD_ENVIRONMENT')
 
+    # Mercado Pago - Pasarela de pagos (mercadopago.com)
+    mercadopago_access_token: Optional[str] = Field(default=None, alias='MERCADOPAGO_ACCESS_TOKEN')
+    mercadopago_public_key: Optional[str] = Field(default=None, alias='MERCADOPAGO_PUBLIC_KEY')
+    mercadopago_webhook_secret: Optional[str] = Field(default=None, alias='MERCADOPAGO_WEBHOOK_SECRET')
+    mercadopago_environment: str = Field(default='sandbox', alias='MERCADOPAGO_ENVIRONMENT')
+
     # App settings
+    app_env: str = Field(default="development", alias='APP_ENV')
     environment: str = Field(default="development", alias='NODE_ENV')
     base_url: str = Field(default="http://localhost:8001", alias='NUXT_PUBLIC_BASE_URL')
     frontend_url: str = Field(default="http://localhost:3000", alias='FRONTEND_URL')
@@ -81,6 +89,14 @@ class Settings(BaseSettings):
 
     @property
     def is_development(self) -> bool:
-        return self.environment == "development"
+        return self.app_env == "development" or self.environment == "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env == "production" or self.environment == "production"
+
+    @property
+    def is_staging(self) -> bool:
+        return self.app_env == "staging"
 
 settings = Settings()

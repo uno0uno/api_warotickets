@@ -307,18 +307,25 @@ async def cancel_reservation(reservation_id: str, user_id: str) -> bool:
 
 
 async def confirm_reservation(reservation_id: str) -> bool:
-    """Confirm reservation after payment (called by payment service)"""
+    """
+    Confirm reservation after payment (called by payment service).
+
+    This function also recovers expired reservations when payment was successful.
+    If a reservation expired while the user was completing payment, we still
+    confirm it since the payment went through.
+    """
     async with get_db_connection() as conn:
-        # Update reservation status
-        await conn.execute("""
+        # Update reservation status - also recover expired reservations
+        # (payment was successful, so we should honor the reservation)
+        result = await conn.execute("""
             UPDATE reservations SET status = 'active', updated_at = NOW()
-            WHERE id = $1 AND status = 'pending'
+            WHERE id = $1 AND status IN ('pending', 'expired')
         """, reservation_id)
 
-        # Update reservation units
+        # Update reservation units - handle both 'reserved' and 'incomplete' states
         await conn.execute("""
             UPDATE reservation_units SET status = 'confirmed', updated_at = NOW()
-            WHERE reservation_id = $1 AND status = 'reserved'
+            WHERE reservation_id = $1 AND status IN ('reserved', 'incomplete')
         """, reservation_id)
 
         # Mark units as sold

@@ -185,6 +185,9 @@ async def get_payment_by_id(payment_id: int, user_id: Optional[str] = None) -> O
         # Convert UUID to string
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+        # Parse JSON string to dict for payment_method_data
+        if payment_dict.get('payment_method_data') and isinstance(payment_dict['payment_method_data'], str):
+            payment_dict['payment_method_data'] = json.loads(payment_dict['payment_method_data'])
 
         return Payment(**payment_dict)
 
@@ -203,6 +206,8 @@ async def get_payment_by_reference(reference: str) -> Optional[Payment]:
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+        if payment_dict.get('payment_method_data') and isinstance(payment_dict['payment_method_data'], str):
+            payment_dict['payment_method_data'] = json.loads(payment_dict['payment_method_data'])
 
         return Payment(**payment_dict)
 
@@ -221,6 +226,8 @@ async def get_payment_by_gateway_order(gateway_order_id: str) -> Optional[Paymen
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+        if payment_dict.get('payment_method_data') and isinstance(payment_dict['payment_method_data'], str):
+            payment_dict['payment_method_data'] = json.loads(payment_dict['payment_method_data'])
 
         return Payment(**payment_dict)
 
@@ -253,12 +260,15 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
         return False
 
     # Update payment status
+    new_status = result.status.value
+    is_final = new_status in ('approved', 'declined', 'voided', 'error')
+
     async with get_db_connection() as conn:
         await conn.execute("""
             UPDATE payments
             SET status = $2,
                 payment_gateway_transaction_id = $3,
-                finalized_at = CASE WHEN $2 IN ('approved', 'declined', 'voided', 'error') THEN NOW() ELSE NULL END,
+                finalized_at = CASE WHEN $7 THEN NOW() ELSE NULL END,
                 status_message = $4,
                 payment_method_type = $5,
                 payment_method_data = $6,
@@ -266,11 +276,12 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
             WHERE id = $1
         """,
             payment.id,
-            result.status.value,
+            new_status,
             result.gateway_transaction_id,
             result.status_message,
             result.payment_method_type,
-            json.dumps(result.payment_method_data) if result.payment_method_data else None
+            json.dumps(result.payment_method_data) if result.payment_method_data else None,
+            is_final
         )
 
         logger.info(f"Updated payment {payment.id} status to {result.status.value}")
@@ -358,6 +369,7 @@ async def check_payment_status(payment_id: int) -> Payment:
     Check current payment status with the gateway.
 
     Useful for polling or verifying status.
+    Also updates our records and confirms reservation if approved.
     """
     payment = await get_payment_by_id(payment_id)
     if not payment:
@@ -373,14 +385,145 @@ async def check_payment_status(payment_id: int) -> Payment:
         result = await gateway.get_payment_status(payment.gateway_order_id)
 
         if result.success and result.status != PaymentStatus.PENDING:
-            # Update our records
+            # Update our records with all available data
             async with get_db_connection() as conn:
                 await conn.execute("""
                     UPDATE payments
-                    SET status = $2, updated_at = NOW()
+                    SET status = $2,
+                        payment_gateway_transaction_id = $3,
+                        finalized_at = CASE WHEN $2 IN ('approved', 'declined', 'voided', 'error') THEN NOW() ELSE NULL END,
+                        status_message = $4,
+                        payment_method_type = $5,
+                        payment_method_data = $6,
+                        updated_at = NOW()
                     WHERE id = $1
-                """, payment_id, result.status.value)
+                """,
+                    payment_id,
+                    result.status.value,
+                    result.gateway_transaction_id,
+                    result.status_message,
+                    result.payment_method_type,
+                    json.dumps(result.payment_method_data) if result.payment_method_data else None
+                )
+
+                logger.info(f"Updated payment {payment_id} status to {result.status.value} via polling")
+
+                # If approved, confirm reservation
+                if result.status == PaymentStatus.APPROVED:
+                    await reservations_service.confirm_reservation(payment.reservation_id)
+                    logger.info(f"Confirmed reservation {payment.reservation_id} via polling")
 
             payment = await get_payment_by_id(payment_id)
 
     return payment
+
+
+async def verify_transaction(transaction_id: str) -> Payment:
+    """
+    Verify a transaction using the gateway's transaction ID.
+
+    This is called after the user is redirected from the payment gateway.
+    Wompi redirects with ?id=TRANSACTION_ID, and we use that to verify.
+
+    Flow:
+    1. Query gateway for transaction details using transaction_id
+    2. Extract payment_link_id from response
+    3. Find our payment record by gateway_order_id
+    4. Update payment status and confirm reservation if approved
+    """
+    import httpx
+
+    # For now, we support Wompi. Can be extended for other gateways.
+    # Query Wompi for transaction details
+    try:
+        async with httpx.AsyncClient() as client:
+            # Determine environment
+            if settings.wompi_environment == 'production':
+                base_url = "https://production.wompi.co/v1"
+            else:
+                base_url = "https://sandbox.wompi.co/v1"
+
+            response = await client.get(
+                f"{base_url}/transactions/{transaction_id}",
+                headers={
+                    "Authorization": f"Bearer {settings.wompi_private_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 404:
+                raise ValidationError(f"Transaction {transaction_id} not found in gateway")
+
+            if response.status_code != 200:
+                raise PaymentError(f"Gateway error: HTTP {response.status_code}")
+
+            tx_data = response.json().get("data", {})
+
+    except httpx.RequestError as e:
+        logger.error(f"Failed to query gateway for transaction {transaction_id}: {e}")
+        raise PaymentError(f"Failed to connect to payment gateway: {e}")
+
+    # Extract payment_link_id to find our payment record
+    payment_link_id = tx_data.get("payment_link_id")
+    if not payment_link_id:
+        raise ValidationError("Transaction is not associated with a payment link")
+
+    # Find our payment by gateway_order_id (which is the payment_link_id)
+    payment = await get_payment_by_gateway_order(payment_link_id)
+    if not payment:
+        raise ValidationError(f"Payment not found for payment link: {payment_link_id}")
+
+    # If already finalized, ensure reservation is confirmed and return
+    if payment.status in ['approved', 'declined', 'voided', 'error']:
+        # Even if payment was already finalized, ensure reservation is confirmed
+        # (handles cases where reservation expired during payment)
+        if payment.status == 'approved':
+            await reservations_service.confirm_reservation(payment.reservation_id)
+        return payment
+
+    # Map Wompi status to our status
+    wompi_status = tx_data.get("status", "").upper()
+    status_map = {
+        "APPROVED": "approved",
+        "PENDING": "pending",
+        "DECLINED": "declined",
+        "VOIDED": "voided",
+        "ERROR": "error",
+    }
+    new_status = status_map.get(wompi_status, "pending")
+
+    # Update our payment record
+    async with get_db_connection() as conn:
+        payment_method_data = json.dumps(tx_data.get("payment_method")) if tx_data.get("payment_method") else None
+        is_final = new_status in ['approved', 'declined', 'voided', 'error']
+
+        await conn.execute("""
+            UPDATE payments
+            SET status = $2,
+                payment_gateway_transaction_id = $3,
+                finalized_at = CASE WHEN $7 THEN NOW() ELSE NULL END,
+                status_message = $4,
+                payment_method_type = $5,
+                payment_method_data = $6,
+                updated_at = NOW()
+            WHERE id = $1
+        """,
+            payment.id,
+            new_status,
+            tx_data.get("id"),
+            tx_data.get("status_message"),
+            tx_data.get("payment_method_type"),
+            payment_method_data,
+            is_final
+        )
+
+        logger.info(f"Updated payment {payment.id} to status {new_status} via verify_transaction")
+
+        # If approved, confirm reservation
+        if new_status == "approved":
+            await reservations_service.confirm_reservation(payment.reservation_id)
+            logger.info(f"Confirmed reservation {payment.reservation_id} via verify_transaction")
+
+    # Return updated payment
+    return await get_payment_by_id(payment.id)
