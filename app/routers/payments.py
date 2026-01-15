@@ -58,8 +58,7 @@ async def checkout_result(id: str = None, env: str = None):
     """
     Handle Wompi redirect after checkout (PUBLIC).
 
-    Wompi redirects to: {redirect_url}?id=TRANSACTION_ID&env=test
-    This endpoint verifies the transaction and returns the result.
+    Wompi redirects to: `{redirect_url}?id=TRANSACTION_ID&env=test`
 
     **Query Parameters:**
     - `id`: Transaction ID from Wompi
@@ -111,26 +110,6 @@ async def check_payment_status(payment_id: int):
 # WEBHOOK ENDPOINTS (No auth - validated by signature)
 # ============================================================================
 
-@router.post("/webhooks/bold")
-async def bold_webhook(request: Request):
-    """
-    Webhook endpoint for Bold payment notifications.
-
-    Bold sends events when transaction status changes.
-    """
-    body = await request.body()
-    event_data = await request.json()
-
-    # TODO: Verify signature in production
-    # headers = dict(request.headers)
-    # gateway = get_gateway('bold')
-    # if not await gateway.verify_webhook(headers, body):
-    #     raise HTTPException(status_code=401, detail="Invalid signature")
-
-    await payments_service.process_gateway_webhook('bold', event_data)
-    return {"status": "received"}
-
-
 @router.post("/webhooks/wompi")
 async def wompi_webhook(request: Request):
     """
@@ -141,15 +120,6 @@ async def wompi_webhook(request: Request):
     event_data = await request.json()
     await payments_service.process_gateway_webhook('wompi', event_data)
     return {"status": "received"}
-
-
-@router.post("/webhooks/mercadopago")
-async def mercadopago_webhook(request: Request):
-    """
-    Webhook endpoint for MercadoPago payment notifications.
-    (Coming soon)
-    """
-    raise HTTPException(status_code=501, detail="MercadoPago not yet implemented")
 
 
 # ============================================================================

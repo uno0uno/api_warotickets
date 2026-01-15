@@ -40,17 +40,6 @@ class Settings(BaseSettings):
     wompi_integrity_secret: Optional[str] = Field(default=None, alias='WOMPI_INTEGRITY_SECRET')
     wompi_environment: str = Field(default='sandbox', alias='WOMPI_ENVIRONMENT')
 
-    # Bold - Pasarela de pagos (bold.co)
-    bold_api_key: Optional[str] = Field(default=None, alias='BOLD_API_KEY')
-    bold_secret_key: Optional[str] = Field(default=None, alias='BOLD_SECRET_KEY')
-    bold_environment: str = Field(default='sandbox', alias='BOLD_ENVIRONMENT')
-
-    # Mercado Pago - Pasarela de pagos (mercadopago.com)
-    mercadopago_access_token: Optional[str] = Field(default=None, alias='MERCADOPAGO_ACCESS_TOKEN')
-    mercadopago_public_key: Optional[str] = Field(default=None, alias='MERCADOPAGO_PUBLIC_KEY')
-    mercadopago_webhook_secret: Optional[str] = Field(default=None, alias='MERCADOPAGO_WEBHOOK_SECRET')
-    mercadopago_environment: str = Field(default='sandbox', alias='MERCADOPAGO_ENVIRONMENT')
-
     # App settings
     app_env: str = Field(default="development", alias='APP_ENV')
     environment: str = Field(default="development", alias='NODE_ENV')
