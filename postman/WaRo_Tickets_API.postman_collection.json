@@ -26,6 +26,11 @@
 			"description": "UUID de la reservacion"
 		},
 		{
+			"key": "RESERVATION_UNIT_ID",
+			"value": "",
+			"description": "ID de la unidad de reservacion (ticket)"
+		},
+		{
 			"key": "PAYMENT_ID",
 			"value": "",
 			"description": "ID del pago"
@@ -901,6 +906,7 @@
 		},
 		{
 			"name": "QR Codes",
+			"description": "Sistema de codigos QR para tickets. Todos los endpoints requieren autenticacion y el reservation_id en la URL.",
 			"item": [
 				{
 					"name": "Get Ticket QR",
@@ -908,11 +914,11 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/qr/{{RESERVATION_UNIT_ID}}",
+							"raw": "{{BASE_URL}}/qr/{{RESERVATION_ID}}/{{RESERVATION_UNIT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["qr", "{{RESERVATION_UNIT_ID}}"]
+							"path": ["qr", "{{RESERVATION_ID}}", "{{RESERVATION_UNIT_ID}}"]
 						},
-						"description": "Obtiene QR code en base64"
+						"description": "Obtiene QR code en base64. Requiere autenticacion y que el usuario sea dueño del ticket.\n\n**Respuesta:**\n- `reservation_unit_id`: ID de la unidad de reservacion\n- `reservation_id`: UUID de la reservacion\n- `qr_code_base64`: Codigo QR en base64\n- `qr_code_data_url`: Data URL para usar directamente en img src\n- `generated_at`: Fecha de generacion"
 					}
 				},
 				{
@@ -921,11 +927,11 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/qr/{{RESERVATION_UNIT_ID}}/image",
+							"raw": "{{BASE_URL}}/qr/{{RESERVATION_ID}}/{{RESERVATION_UNIT_ID}}/image",
 							"host": ["{{BASE_URL}}"],
-							"path": ["qr", "{{RESERVATION_UNIT_ID}}", "image"]
+							"path": ["qr", "{{RESERVATION_ID}}", "{{RESERVATION_UNIT_ID}}", "image"]
 						},
-						"description": "Obtiene QR code como imagen PNG"
+						"description": "Obtiene QR code como imagen PNG directamente. Util para descargar o imprimir.\n\n**Headers de respuesta:**\n- `Content-Type`: image/png\n- `X-Reservation-Id`: UUID de la reservacion\n- `X-Reservation-Unit-Id`: ID de la unidad"
 					}
 				},
 				{
@@ -940,11 +946,11 @@
 							"raw": "{\n    \"qr_data\": \"WT:123|456|user-id|event-slug|timestamp|signature\",\n    \"event_slug\": \"festival-musica-2025\"\n}"
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/qr/validate",
+							"raw": "{{BASE_URL}}/qr/{{RESERVATION_ID}}/validate",
 							"host": ["{{BASE_URL}}"],
-							"path": ["qr", "validate"]
+							"path": ["qr", "{{RESERVATION_ID}}", "validate"]
 						},
-						"description": "Valida QR en entrada del evento"
+						"description": "Valida QR en entrada del evento. Usado por staff con dispositivos de escaneo.\n\n**Campos:**\n- `qr_data`: Datos escaneados del QR (firmados con HMAC)\n- `event_slug`: Slug del evento actual\n\n**Resultados posibles:**\n- `valid`: Boleto valido - acceso permitido\n- `invalid_signature`: QR invalido o alterado\n- `ticket_not_found`: Boleto no encontrado\n- `already_used`: Boleto ya utilizado\n- `wrong_event`: Boleto de otro evento\n- `ticket_transferred`: Boleto transferido\n- `ticket_cancelled`: Boleto cancelado"
 					}
 				},
 				{
@@ -956,7 +962,8 @@
 							"raw": "{{BASE_URL}}/qr/stats/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["qr", "stats", "{{EVENT_ID}}"]
-						}
+						},
+						"description": "Obtiene estadisticas de check-in para un evento. Solo el dueño del evento puede acceder.\n\n**Respuesta:**\n- `event_id`: ID del evento\n- `event_name`: Nombre del evento\n- `total_tickets`: Total de tickets vendidos\n- `checked_in`: Tickets ya escaneados\n- `pending`: Tickets pendientes\n- `check_in_percentage`: Porcentaje de ingreso\n- `last_check_in`: Ultimo check-in registrado"
 					}
 				},
 				{
@@ -965,11 +972,11 @@
 						"method": "POST",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/qr/reset/{{RESERVATION_UNIT_ID}}",
+							"raw": "{{BASE_URL}}/qr/{{RESERVATION_ID}}/reset/{{RESERVATION_UNIT_ID}}",
 							"host": ["{{BASE_URL}}"],
-							"path": ["qr", "reset", "{{RESERVATION_UNIT_ID}}"]
+							"path": ["qr", "{{RESERVATION_ID}}", "reset", "{{RESERVATION_UNIT_ID}}"]
 						},
-						"description": "Resetea un ticket usado a confirmado (admin)"
+						"description": "Resetea un ticket usado a confirmado (funcion admin). Solo el dueño del evento puede resetear tickets.\n\n**Uso:**\n- Para corregir errores de escaneo en la entrada\n- Permite que el ticket pueda ser escaneado nuevamente\n\n**Respuesta:**\n- `reservation_unit_id`: ID de la unidad\n- `reservation_id`: UUID de la reservacion\n- `old_status`: Estado anterior (used)\n- `new_status`: Nuevo estado (confirmed)\n- `message`: Mensaje de confirmacion"
 					}
 				}
 			]

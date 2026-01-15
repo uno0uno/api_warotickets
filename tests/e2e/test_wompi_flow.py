@@ -35,8 +35,8 @@ REDIRECT_URL = "http://localhost:8001/payments/checkout/result"
 SESSION_TOKEN = "bde1489f-9ee4-4de1-9c3f-d31b26f13ce6"
 
 # Datos de prueba
-CLUSTER_ID = 29  # Rock Festival 2026
-UNIT_IDS = [35782, 35783]  # VIP disponibles (600K COP c/u)
+CLUSTER_ID = 23  # Festival de las Madres
+UNIT_IDS = [34199, 34200]  # Zona General disponibles (110K COP c/u)
 CUSTOMER_EMAIL = "anderson.electronico@gmail.com"
 CUSTOMER_NAME = "Anderson Test"
 GATEWAY = "wompi"  # wompi, bold, mercadopago

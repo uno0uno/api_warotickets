@@ -20,6 +20,7 @@ class ValidationResult(str, Enum):
 class QRCodeResponse(BaseModel):
     """Respuesta con codigo QR"""
     reservation_unit_id: int
+    reservation_id: str
     qr_code_base64: str
     qr_code_data_url: str
     generated_at: datetime
@@ -39,6 +40,7 @@ class QRValidationResponse(BaseModel):
 
     # Info del ticket (solo si valido)
     reservation_unit_id: Optional[int] = None
+    reservation_id: Optional[str] = None
     unit_id: Optional[int] = None
     unit_display_name: Optional[str] = None
     area_name: Optional[str] = None
@@ -53,6 +55,7 @@ class QRValidationResponse(BaseModel):
 class TicketCheckIn(BaseModel):
     """Registro de check-in"""
     reservation_unit_id: int
+    reservation_id: str
     checked_in_at: datetime
     checked_in_by: str  # User ID del staff que valido
     gate: Optional[str] = None  # Puerta de entrada

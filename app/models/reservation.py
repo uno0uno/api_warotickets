@@ -177,7 +177,9 @@ class MyTicket(BaseModel):
     event_slug: str
     event_date: datetime
     status: str
-    qr_code_url: Optional[str] = None
+    qr_code: Optional[str] = None  # Unique token for validation
+    qr_data: Optional[dict] = None  # Full QR data JSON
+    qr_code_url: Optional[str] = None  # URL to QR image (generated on demand)
     can_transfer: bool = True
 
     @field_validator('reservation_id', mode='before')

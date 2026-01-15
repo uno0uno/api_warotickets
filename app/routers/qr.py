@@ -1,15 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
+from typing import Optional
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser
 from app.models.qr import (
     QRCodeResponse, QRValidationRequest, QRValidationResponse, CheckInStats
 )
 from app.services import qr_service
 
+
+class ResetTicketResponse(BaseModel):
+    """Respuesta al resetear ticket"""
+    reservation_unit_id: int
+    reservation_id: str
+    old_status: str
+    new_status: str
+    message: str
+
 router = APIRouter()
 
 
-@router.get("/{reservation_unit_id}", response_model=QRCodeResponse)
+@router.get("/{reservation_id}/{reservation_unit_id}", response_model=QRCodeResponse)
 async def get_ticket_qr(
+    reservation_id: str,
     reservation_unit_id: int,
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
@@ -18,13 +30,14 @@ async def get_ticket_qr(
     Returns base64 encoded PNG image.
     """
     qr = await qr_service.generate_qr_for_ticket(
-        reservation_unit_id, user.user_id
+        reservation_id, reservation_unit_id, user.user_id
     )
     return qr
 
 
-@router.get("/{reservation_unit_id}/image")
+@router.get("/{reservation_id}/{reservation_unit_id}/image")
 async def get_ticket_qr_image(
+    reservation_id: str,
     reservation_unit_id: int,
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
@@ -36,15 +49,18 @@ async def get_ticket_qr_image(
     from app.database import get_db_connection
 
     async with get_db_connection(use_transaction=False) as conn:
+        # Check ownership (original buyer OR transferred recipient)
         ticket = await conn.fetchrow("""
-            SELECT ru.id, ru.unit_id, r.user_id, c.slug_cluster
+            SELECT ru.id, ru.unit_id, ru.reservation_id, r.user_id,
+                   ru.original_user_id, c.slug_cluster
             FROM reservation_units ru
             JOIN reservations r ON ru.reservation_id = r.id
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE ru.id = $1 AND r.user_id = $2
-        """, reservation_unit_id, user.user_id)
+            WHERE ru.id = $1 AND ru.reservation_id = $2
+              AND (r.user_id = $3 OR ru.original_user_id = $3)
+        """, reservation_unit_id, reservation_id, user.user_id)
 
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
@@ -62,13 +78,16 @@ async def get_ticket_qr_image(
         content=qr_bytes,
         media_type="image/png",
         headers={
-            "Content-Disposition": f"inline; filename=ticket-{reservation_unit_id}.png"
+            "Content-Disposition": f"inline; filename=ticket-{reservation_unit_id}.png",
+            "X-Reservation-Id": str(ticket['reservation_id']),
+            "X-Reservation-Unit-Id": str(reservation_unit_id)
         }
     )
 
 
-@router.post("/validate", response_model=QRValidationResponse)
+@router.post("/{reservation_id}/validate", response_model=QRValidationResponse)
 async def validate_qr(
+    reservation_id: str,
     data: QRValidationRequest,
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
@@ -80,7 +99,7 @@ async def validate_qr(
 
     Returns validation result with ticket and owner info.
     """
-    result = await qr_service.validate_qr(data, user.user_id)
+    result = await qr_service.validate_qr(reservation_id, data, user.user_id)
     return result
 
 
@@ -99,8 +118,9 @@ async def get_check_in_stats(
     return stats
 
 
-@router.post("/reset/{reservation_unit_id}", status_code=204)
+@router.post("/{reservation_id}/reset/{reservation_unit_id}", response_model=ResetTicketResponse)
 async def reset_ticket_status(
+    reservation_id: str,
     reservation_unit_id: int,
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
@@ -108,8 +128,9 @@ async def reset_ticket_status(
     Reset a used ticket back to confirmed status.
     Admin function for handling mistakes at entrance.
     """
-    reset = await qr_service.reset_ticket_status(
-        reservation_unit_id, user.user_id
+    result = await qr_service.reset_ticket_status(
+        reservation_id, reservation_unit_id, user.user_id
     )
-    if not reset:
+    if not result:
         raise HTTPException(status_code=404, detail="Ticket not found or not used")
+    return result

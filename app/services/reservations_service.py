@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from typing import Optional, List
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -218,6 +219,12 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
 
         reservation_id = str(reservation_row['id'])
 
+        # Track reservation creation
+        await _track_reservation_status(
+            conn, reservation_id, None, 'pending',
+            changed_by=user_id, reason='Reservation created'
+        )
+
         # Get active sale stage for discount tracking
         sale_stage = await pricing_service.get_active_sale_stage(units_info[0]['area_id'])
         sale_stage_id = sale_stage['id'] if sale_stage else None
@@ -233,12 +240,19 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
 
         # Create reservation units and reserve the units
         for unit in units_info:
-            await conn.execute("""
+            ru_row = await conn.fetchrow("""
                 INSERT INTO reservation_units (
                     reservation_id, unit_id, status, original_user_id,
                     applied_area_sale_stage_id, applied_promotion_id, updated_at
                 ) VALUES ($1, $2, 'reserved', $3, $4, $5, NOW())
+                RETURNING id
             """, reservation_id, unit['id'], user_id, sale_stage_id, promotion_id)
+
+            # Track unit reservation
+            await _track_reservation_unit_status(
+                conn, ru_row['id'], reservation_id, None, 'reserved',
+                changed_by=user_id, reason='Unit reserved'
+            )
 
             # Update unit status
             await conn.execute("""
@@ -276,9 +290,11 @@ async def cancel_reservation(reservation_id: str, user_id: str) -> bool:
         if reservation['status'] not in ['pending', 'active']:
             raise ValidationError(f"Cannot cancel reservation with status: {reservation['status']}")
 
-        # Get unit IDs
+        old_status = reservation['status']
+
+        # Get reservation units with their IDs and status
         units = await conn.fetch("""
-            SELECT unit_id FROM reservation_units
+            SELECT id, unit_id, status FROM reservation_units
             WHERE reservation_id = $1
         """, reservation_id)
 
@@ -296,11 +312,23 @@ async def cancel_reservation(reservation_id: str, user_id: str) -> bool:
             WHERE id = $1
         """, reservation_id)
 
-        # Update reservation units
-        await conn.execute("""
-            UPDATE reservation_units SET status = 'cancelled', updated_at = NOW()
-            WHERE reservation_id = $1
-        """, reservation_id)
+        # Track reservation status change
+        await _track_reservation_status(
+            conn, reservation_id, old_status, 'cancelled',
+            changed_by=user_id, reason='Cancelled by user'
+        )
+
+        # Update reservation units and track each
+        for unit in units:
+            await conn.execute("""
+                UPDATE reservation_units SET status = 'cancelled', updated_at = NOW()
+                WHERE id = $1
+            """, unit['id'])
+
+            await _track_reservation_unit_status(
+                conn, unit['id'], reservation_id, unit['status'], 'cancelled',
+                changed_by=user_id, reason='Reservation cancelled'
+            )
 
         logger.info(f"Cancelled reservation {reservation_id}")
         return True
@@ -313,20 +341,52 @@ async def confirm_reservation(reservation_id: str) -> bool:
     This function also recovers expired reservations when payment was successful.
     If a reservation expired while the user was completing payment, we still
     confirm it since the payment went through.
+
+    Also generates QR code data for each ticket.
     """
     async with get_db_connection() as conn:
+        # Get current status before update
+        reservation = await conn.fetchrow("""
+            SELECT status, user_id FROM reservations WHERE id = $1
+        """, reservation_id)
+
+        if not reservation:
+            logger.warning(f"Reservation {reservation_id} not found for confirmation")
+            return False
+
+        old_reservation_status = reservation['status']
+        user_id = str(reservation['user_id'])
+
+        # Get reservation units with current status
+        units = await conn.fetch("""
+            SELECT id, status FROM reservation_units
+            WHERE reservation_id = $1 AND status IN ('reserved', 'incomplete')
+        """, reservation_id)
+
         # Update reservation status - also recover expired reservations
         # (payment was successful, so we should honor the reservation)
-        result = await conn.execute("""
+        await conn.execute("""
             UPDATE reservations SET status = 'active', updated_at = NOW()
             WHERE id = $1 AND status IN ('pending', 'expired')
         """, reservation_id)
 
-        # Update reservation units - handle both 'reserved' and 'incomplete' states
-        await conn.execute("""
-            UPDATE reservation_units SET status = 'confirmed', updated_at = NOW()
-            WHERE reservation_id = $1 AND status IN ('reserved', 'incomplete')
-        """, reservation_id)
+        # Track reservation status change
+        await _track_reservation_status(
+            conn, reservation_id, old_reservation_status, 'active',
+            reason='Payment confirmed'
+        )
+
+        # Update reservation units and track each
+        for unit in units:
+            await conn.execute("""
+                UPDATE reservation_units SET status = 'confirmed', updated_at = NOW()
+                WHERE id = $1
+            """, unit['id'])
+
+            await _track_reservation_unit_status(
+                conn, unit['id'], reservation_id, unit['status'], 'confirmed',
+                reason='Payment confirmed'
+            )
 
         # Mark units as sold
         await conn.execute("""
@@ -335,8 +395,87 @@ async def confirm_reservation(reservation_id: str) -> bool:
             WHERE ru.unit_id = u.id AND ru.reservation_id = $1
         """, reservation_id)
 
+        # Generate QR data for each ticket
+        await _generate_qr_data_for_reservation(conn, reservation_id)
+
         logger.info(f"Confirmed reservation {reservation_id}")
         return True
+
+
+async def _generate_qr_data_for_reservation(conn, reservation_id: str) -> None:
+    """
+    Generate QR code data for each reservation unit (ticket).
+
+    The QR data includes all information needed to validate the ticket at entry.
+    """
+    # Get reservation info with user_id
+    reservation = await conn.fetchrow("""
+        SELECT r.id, r.user_id
+        FROM reservations r
+        WHERE r.id = $1
+    """, reservation_id)
+
+    if not reservation:
+        logger.warning(f"Reservation {reservation_id} not found for QR generation")
+        return
+
+    user_id = str(reservation['user_id'])
+
+    # Get all units with event and area info
+    units = await conn.fetch("""
+        SELECT
+            ru.id as reservation_unit_id,
+            ru.unit_id,
+            u.nomenclature_letter_area,
+            u.nomenclature_number_unit,
+            a.id as area_id,
+            a.area_name,
+            c.id as cluster_id,
+            c.cluster_name,
+            c.start_date as event_date
+        FROM reservation_units ru
+        JOIN units u ON ru.unit_id = u.id
+        JOIN areas a ON u.area_id = a.id
+        JOIN clusters c ON a.cluster_id = c.id
+        WHERE ru.reservation_id = $1
+    """, reservation_id)
+
+    generated_at = datetime.now().isoformat()
+
+    for unit in units:
+        # Generate unique QR code token
+        qr_code = str(uuid.uuid4())
+
+        # Build QR data JSON
+        qr_data = {
+            "code": qr_code,
+            "reservation_id": reservation_id,
+            "reservation_unit_id": unit['reservation_unit_id'],
+            "user_id": user_id,
+            "event": {
+                "id": unit['cluster_id'],
+                "name": unit['cluster_name'],
+                "date": unit['event_date'].isoformat() if unit['event_date'] else None
+            },
+            "area": {
+                "id": unit['area_id'],
+                "name": unit['area_name']
+            },
+            "unit": {
+                "id": unit['unit_id'],
+                "display_name": f"{unit['nomenclature_letter_area'] or ''}-{unit['nomenclature_number_unit'] or unit['unit_id']}".strip('-')
+            },
+            "generated_at": generated_at
+        }
+
+        # Update reservation unit with QR data
+        await conn.execute("""
+            UPDATE reservation_units
+            SET qr_code = $1, qr_data = $2, updated_at = NOW()
+            WHERE id = $3
+        """, qr_code, json.dumps(qr_data), unit['reservation_unit_id'])
+
+    logger.info(f"Generated QR data for {len(units)} tickets in reservation {reservation_id}")
 
 
 async def expire_pending_reservations() -> int:
@@ -354,9 +493,9 @@ async def expire_pending_reservations() -> int:
         for reservation in expired:
             reservation_id = str(reservation['id'])
 
-            # Get unit IDs
+            # Get reservation units with status
             units = await conn.fetch("""
-                SELECT unit_id FROM reservation_units
+                SELECT id, unit_id, status FROM reservation_units
                 WHERE reservation_id = $1
             """, reservation_id)
 
@@ -374,11 +513,23 @@ async def expire_pending_reservations() -> int:
                 WHERE id = $1
             """, reservation_id)
 
-            # Update reservation units
-            await conn.execute("""
-                UPDATE reservation_units SET status = 'cancelled', updated_at = NOW()
-                WHERE reservation_id = $1
-            """, reservation_id)
+            # Track reservation expiration
+            await _track_reservation_status(
+                conn, reservation_id, 'pending', 'expired',
+                reason='Reservation timeout - no payment received'
+            )
+
+            # Update reservation units and track each
+            for unit in units:
+                await conn.execute("""
+                    UPDATE reservation_units SET status = 'cancelled', updated_at = NOW()
+                    WHERE id = $1
+                """, unit['id'])
+
+                await _track_reservation_unit_status(
+                    conn, unit['id'], reservation_id, unit['status'], 'cancelled',
+                    reason='Reservation expired'
+                )
 
             count += 1
 
@@ -389,7 +540,7 @@ async def expire_pending_reservations() -> int:
 
 
 async def get_my_tickets(user_id: str) -> List[MyTicket]:
-    """Get all confirmed tickets for a user"""
+    """Get all confirmed tickets for a user (including transferred tickets)"""
     async with get_db_connection(use_transaction=False) as conn:
         rows = await conn.fetch("""
             SELECT
@@ -397,6 +548,8 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
                 ru.reservation_id,
                 ru.unit_id,
                 ru.status,
+                ru.qr_code,
+                ru.qr_data,
                 u.nomenclature_letter_area,
                 u.nomenclature_number_unit,
                 a.area_name,
@@ -408,7 +561,8 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
             JOIN reservations r ON ru.reservation_id = r.id
-            WHERE r.user_id = $1 AND ru.status IN ('confirmed', 'used')
+            WHERE (r.user_id = $1 OR ru.original_user_id = $1)
+              AND ru.status IN ('confirmed', 'used')
             ORDER BY c.start_date ASC
         """, user_id)
 
@@ -418,6 +572,9 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
             ticket_dict['unit_display_name'] = f"{row['nomenclature_letter_area'] or ''}-{row['nomenclature_number_unit'] or row['unit_id']}".strip('-')
             ticket_dict['can_transfer'] = row['status'] == 'confirmed'
             ticket_dict['qr_code_url'] = None  # Will be generated on demand
+            # Parse qr_data if it's a string
+            if ticket_dict.get('qr_data') and isinstance(ticket_dict['qr_data'], str):
+                ticket_dict['qr_data'] = json.loads(ticket_dict['qr_data'])
             tickets.append(MyTicket(**ticket_dict))
 
         return tickets
@@ -447,3 +604,48 @@ async def get_reservation_timeout(reservation_id: str, user_id: str) -> Optional
             seconds_remaining=seconds_remaining,
             is_expired=seconds_remaining == 0
         )
+
+
+# ============================================================================
+# STATUS HISTORY TRACKING
+# ============================================================================
+
+async def _track_reservation_status(
+    conn,
+    reservation_id: str,
+    old_status: Optional[str],
+    new_status: str,
+    changed_by: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> None:
+    """Track reservation status change in history table"""
+    await conn.execute("""
+        INSERT INTO reservation_status_history
+        (reservation_id, old_status, new_status, changed_by, reason, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    """, reservation_id, old_status, new_status, changed_by, reason,
+        json.dumps(metadata) if metadata else None)
+
+    logger.debug(f"Tracked reservation {reservation_id}: {old_status} -> {new_status}")
+
+
+async def _track_reservation_unit_status(
+    conn,
+    reservation_unit_id: int,
+    reservation_id: str,
+    old_status: Optional[str],
+    new_status: str,
+    changed_by: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> None:
+    """Track reservation unit status change in history table"""
+    await conn.execute("""
+        INSERT INTO reservation_unit_status_history
+        (reservation_unit_id, reservation_id, old_status, new_status, changed_by, reason, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+    """, reservation_unit_id, reservation_id, old_status, new_status, changed_by, reason,
+        json.dumps(metadata) if metadata else None)
+
+    logger.debug(f"Tracked unit {reservation_unit_id}: {old_status} -> {new_status}")

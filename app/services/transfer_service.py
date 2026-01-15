@@ -48,8 +48,8 @@ async def initiate_transfer(
 
         # Check for existing pending transfer
         existing = await conn.fetchrow("""
-            SELECT id FROM ticket_transfers
-            WHERE reservation_unit_id = $1 AND status = 'pending'
+            SELECT id FROM unit_transfer_log
+            WHERE reservation_unit_id = $1 AND transfer_reason LIKE 'PENDING|%'
         """, data.reservation_unit_id)
 
         if existing:
@@ -364,4 +364,13 @@ async def get_transfer_history(reservation_unit_id: int) -> List[TransferLogEntr
             ORDER BY utl.transfer_date ASC
         """, reservation_unit_id)
 
-        return [TransferLogEntry(**dict(row)) for row in rows]
+        entries = []
+        for row in rows:
+            data = dict(row)
+            # Convert UUIDs to strings
+            if data.get('from_user_id'):
+                data['from_user_id'] = str(data['from_user_id'])
+            if data.get('to_user_id'):
+                data['to_user_id'] = str(data['to_user_id'])
+            entries.append(TransferLogEntry(**data))
+        return entries

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 from datetime import datetime
@@ -14,7 +15,27 @@ from app.core.exceptions import ValidationError
 logger = logging.getLogger(__name__)
 
 
+async def _track_reservation_unit_status(
+    conn,
+    reservation_unit_id: int,
+    reservation_id: str,
+    old_status: Optional[str],
+    new_status: str,
+    changed_by: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> None:
+    """Track reservation unit status change in history table"""
+    await conn.execute("""
+        INSERT INTO reservation_unit_status_history
+        (reservation_unit_id, reservation_id, old_status, new_status, changed_by, reason, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+    """, reservation_unit_id, reservation_id, old_status, new_status, changed_by, reason,
+        json.dumps(metadata) if metadata else None)
+
+
 async def generate_qr_for_ticket(
+    reservation_id: str,
     reservation_unit_id: int,
     user_id: str
 ) -> QRCodeResponse:
@@ -22,21 +43,23 @@ async def generate_qr_for_ticket(
     async with get_db_connection(use_transaction=False) as conn:
         # Get ticket info
         ticket = await conn.fetchrow("""
-            SELECT ru.id, ru.unit_id, ru.status,
-                   r.user_id, c.slug_cluster
+            SELECT ru.id, ru.unit_id, ru.status, ru.reservation_id,
+                   ru.original_user_id, r.user_id, c.slug_cluster
             FROM reservation_units ru
             JOIN reservations r ON ru.reservation_id = r.id
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE ru.id = $1
-        """, reservation_unit_id)
+            WHERE ru.id = $1 AND ru.reservation_id = $2
+        """, reservation_unit_id, reservation_id)
 
         if not ticket:
             raise ValidationError("Ticket not found")
 
-        # Verify ownership
-        if str(ticket['user_id']) != user_id:
+        # Verify ownership (original buyer OR transferred recipient)
+        is_owner = str(ticket['user_id']) == user_id
+        is_transfer_recipient = ticket['original_user_id'] and str(ticket['original_user_id']) == user_id
+        if not is_owner and not is_transfer_recipient:
             raise ValidationError("Access denied")
 
         # Check status
@@ -53,6 +76,7 @@ async def generate_qr_for_ticket(
 
         return QRCodeResponse(
             reservation_unit_id=reservation_unit_id,
+            reservation_id=str(ticket['reservation_id']),
             qr_code_base64=qr_base64,
             qr_code_data_url=generate_data_url(qr_base64),
             generated_at=datetime.now()
@@ -60,6 +84,7 @@ async def generate_qr_for_ticket(
 
 
 async def validate_qr(
+    reservation_id: str,
     data: QRValidationRequest,
     validator_user_id: str
 ) -> QRValidationResponse:
@@ -78,9 +103,9 @@ async def validate_qr(
         )
 
     async with get_db_connection() as conn:
-        # Get ticket info
+        # Get ticket info - also validate reservation_id matches
         ticket = await conn.fetchrow("""
-            SELECT ru.id, ru.unit_id, ru.status, ru.original_user_id,
+            SELECT ru.id, ru.unit_id, ru.status, ru.original_user_id, ru.reservation_id,
                    r.user_id, r.start_date, r.end_date,
                    u.nomenclature_letter_area, u.nomenclature_number_unit,
                    a.area_name,
@@ -92,8 +117,8 @@ async def validate_qr(
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
             JOIN profile p ON r.user_id = p.id
-            WHERE ru.id = $1
-        """, qr_info['reservation_unit_id'])
+            WHERE ru.id = $1 AND ru.reservation_id = $2
+        """, qr_info['reservation_unit_id'], reservation_id)
 
         if not ticket:
             return QRValidationResponse(
@@ -149,6 +174,17 @@ async def validate_qr(
             WHERE id = $1
         """, qr_info['reservation_unit_id'])
 
+        # Track check-in
+        await _track_reservation_unit_status(
+            conn,
+            qr_info['reservation_unit_id'],
+            str(ticket['reservation_id']),
+            ticket['status'],
+            'used',
+            changed_by=validator_user_id,
+            reason='Check-in at event entrance'
+        )
+
         # Generate display name
         display_name = f"{ticket['nomenclature_letter_area'] or ''}-{ticket['nomenclature_number_unit'] or ticket['unit_id']}".strip('-')
 
@@ -159,6 +195,7 @@ async def validate_qr(
             result=ValidationResult.VALID,
             message="Boleto valido - Acceso permitido",
             reservation_unit_id=ticket['id'],
+            reservation_id=str(ticket['reservation_id']),
             unit_id=ticket['unit_id'],
             unit_display_name=display_name,
             area_name=ticket['area_name'],
@@ -209,22 +246,23 @@ async def get_check_in_stats(cluster_id: int, profile_id: str) -> Optional[Check
 
 
 async def reset_ticket_status(
+    reservation_id: str,
     reservation_unit_id: int,
     profile_id: str
-) -> bool:
+) -> Optional[dict]:
     """Reset a used ticket back to confirmed (admin function)"""
     async with get_db_connection() as conn:
-        # Verify ownership
+        # Verify ownership and validate reservation_id matches
         ticket = await conn.fetchrow("""
-            SELECT ru.id FROM reservation_units ru
+            SELECT ru.id, ru.reservation_id FROM reservation_units ru
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE ru.id = $1 AND c.profile_id = $2
-        """, reservation_unit_id, profile_id)
+            WHERE ru.id = $1 AND ru.reservation_id = $2 AND c.profile_id = $3 AND ru.status = 'used'
+        """, reservation_unit_id, reservation_id, profile_id)
 
         if not ticket:
-            return False
+            return None
 
         result = await conn.execute("""
             UPDATE reservation_units
@@ -234,6 +272,24 @@ async def reset_ticket_status(
 
         reset = result == "UPDATE 1"
         if reset:
+            # Track the reset
+            await _track_reservation_unit_status(
+                conn,
+                reservation_unit_id,
+                str(ticket['reservation_id']),
+                'used',
+                'confirmed',
+                changed_by=profile_id,
+                reason='Ticket status reset by admin'
+            )
             logger.info(f"Reset ticket {reservation_unit_id} status to confirmed")
 
-        return reset
+            return {
+                "reservation_unit_id": reservation_unit_id,
+                "reservation_id": str(ticket['reservation_id']),
+                "old_status": "used",
+                "new_status": "confirmed",
+                "message": "Ticket reset exitosamente"
+            }
+
+        return None
