@@ -17,9 +17,7 @@ class PaymentStatus(str, Enum):
 
 class PaymentGateway(str, Enum):
     """Pasarelas de pago soportadas"""
-    BOLD = "bold"
     WOMPI = "wompi"
-    MERCADOPAGO = "mercadopago"
 
 
 class PaymentMethodType(str, Enum):
@@ -43,7 +41,7 @@ class PaymentBase(BaseModel):
 class PaymentCreate(BaseModel):
     """Schema para iniciar pago (publico, sin auth)"""
     reservation_id: str = Field(..., description="ID de la reservacion")
-    gateway: PaymentGateway = Field(default=PaymentGateway.BOLD, description="Pasarela de pago")
+    gateway: PaymentGateway = Field(default=PaymentGateway.WOMPI, description="Pasarela de pago")
     customer_email: EmailStr = Field(..., description="Email del cliente")
     customer_name: Optional[str] = Field(None, description="Nombre del cliente")
     customer_phone: Optional[str] = Field(None, description="Telefono del cliente")

@@ -1,10 +1,7 @@
 """
-Payments Router - Gateway Agnostic
+Payments Router - Wompi Gateway
 
-Supports multiple payment gateways:
-- Bold (bold.co)
-- Wompi (wompi.co)
-- MercadoPago (coming soon)
+Integración con Wompi (wompi.co) para pagos en Colombia.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List, Optional
@@ -31,13 +28,9 @@ async def create_payment_intent(data: PaymentCreate):
     This endpoint is public - no authentication required.
     The reservation must exist and be in 'pending' status.
 
-    **Supported Gateways:**
-    - `bold` - Bold.co (default)
-    - `wompi` - Wompi.co
-
     **Request Body:**
     - `reservation_id`: UUID of the reservation
-    - `gateway`: Payment gateway to use (bold, wompi)
+    - `gateway`: Payment gateway (wompi)
     - `customer_email`: Customer email for receipt
     - `customer_name`: Optional customer name
     - `return_url`: URL to redirect after payment
@@ -45,8 +38,8 @@ async def create_payment_intent(data: PaymentCreate):
     **Returns:**
     - `payment_id`: Our internal payment ID
     - `gateway`: Gateway used
-    - `checkout_url`: Redirect URL for payment
-    - `gateway_order_id`: Gateway's order/link ID
+    - `checkout_url`: Redirect URL for Wompi checkout
+    - `gateway_order_id`: Wompi payment link ID
     - `expires_at`: Payment expiration time
     """
     intent = await payments_service.create_payment_intent(data)

@@ -76,7 +76,7 @@ class BaseGateway(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Gateway identifier (e.g., 'bold', 'wompi', 'mercadopago')"""
+        """Gateway identifier (e.g., 'wompi')"""
         pass
 
     @property
