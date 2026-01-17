@@ -87,7 +87,7 @@ app.middleware("http")(tenant_detection_middleware)   # runs first
 from app.routers import (
     events, areas, units, public,
     sale_stages, promotions, reservations, payments,
-    qr, transfers, dashboard, auth
+    qr, transfers, dashboard, auth, tenants
 )
 
 # Authentication (public endpoints)
@@ -117,6 +117,9 @@ app.include_router(transfers.router, prefix="/transfers", tags=["transfers"])
 
 # Dashboard and reports (requires auth)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+
+# Tenants management (requires auth)
+app.include_router(tenants.router, prefix="/tenants", tags=["tenants"])
 
 @app.get("/")
 async def root():

@@ -12,3 +12,4 @@ from app.routers import transfers
 from app.routers import dashboard
 from app.routers import auth
 from app.routers import uploads
+from app.routers import tenants
