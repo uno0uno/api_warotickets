@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -38,6 +38,25 @@ class EventCreate(EventBase):
     slug_cluster: Optional[str] = Field(None, description="Slug unico del evento (se genera automaticamente si no se proporciona)")
     legal_info_id: Optional[int] = Field(None, description="ID de la info legal del organizador")
 
+    @model_validator(mode='after')
+    def validate_dates(self):
+        now = datetime.now(timezone.utc)
+
+        # Validate start_date is not in the past
+        if self.start_date:
+            start_dt = self.start_date if self.start_date.tzinfo else self.start_date.replace(tzinfo=timezone.utc)
+            if start_dt < now:
+                raise ValueError('La fecha de inicio no puede ser anterior a la fecha actual')
+
+        # Validate end_date is after start_date
+        if self.start_date and self.end_date:
+            start_dt = self.start_date if self.start_date.tzinfo else self.start_date.replace(tzinfo=timezone.utc)
+            end_dt = self.end_date if self.end_date.tzinfo else self.end_date.replace(tzinfo=timezone.utc)
+            if end_dt <= start_dt:
+                raise ValueError('La fecha de fin debe ser posterior a la fecha de inicio')
+
+        return self
+
 
 class EventUpdate(BaseModel):
     """Schema para actualizar un evento"""
@@ -50,6 +69,25 @@ class EventUpdate(BaseModel):
     is_active: Optional[bool] = None
     shadowban: Optional[bool] = None
     legal_info_id: Optional[int] = None
+
+    @model_validator(mode='after')
+    def validate_dates(self):
+        now = datetime.now(timezone.utc)
+
+        # Validate start_date is not in the past (if being updated)
+        if self.start_date:
+            start_dt = self.start_date if self.start_date.tzinfo else self.start_date.replace(tzinfo=timezone.utc)
+            if start_dt < now:
+                raise ValueError('La fecha de inicio no puede ser anterior a la fecha actual')
+
+        # Validate end_date is after start_date (if both are provided in the update)
+        if self.start_date and self.end_date:
+            start_dt = self.start_date if self.start_date.tzinfo else self.start_date.replace(tzinfo=timezone.utc)
+            end_dt = self.end_date if self.end_date.tzinfo else self.end_date.replace(tzinfo=timezone.utc)
+            if end_dt <= start_dt:
+                raise ValueError('La fecha de fin debe ser posterior a la fecha de inicio')
+
+        return self
 
 
 class EventImage(BaseModel):

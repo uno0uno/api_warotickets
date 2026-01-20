@@ -178,7 +178,11 @@ async def update_area(
     tenant_id: str,
     data: AreaUpdate
 ) -> Optional[Area]:
-    """Update an existing area"""
+    """Update an existing area
+
+    Campos NO editables (se pactan al crear):
+    - capacity, price, nomenclature_letter, unit_capacity, service
+    """
     async with get_db_connection() as conn:
         # Verify ownership, tenant and cluster
         existing = await conn.fetchrow("""
@@ -190,12 +194,12 @@ async def update_area(
         if not existing:
             return None
 
+        update_data = data.model_dump(exclude_unset=True)
+
         # Build dynamic update query
         update_fields = []
         params = []
         param_idx = 1
-
-        update_data = data.model_dump(exclude_unset=True)
 
         for field, value in update_data.items():
             # Serialize extra_attributes dict to JSON string
