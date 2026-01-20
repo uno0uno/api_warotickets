@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", alias='APP_ENV')
     environment: str = Field(default="development", alias='NODE_ENV')
     base_url: str = Field(default="http://localhost:8001", alias='NUXT_PUBLIC_BASE_URL')
-    frontend_url: str = Field(default="http://localhost:3000", alias='FRONTEND_URL')
+    frontend_url: str = Field(default="http://localhost:8888", alias='FRONTEND_URL')
 
     # FastAPI specific
     port: int = Field(default=8001, alias='FASTAPI_PORT')
