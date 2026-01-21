@@ -1,36 +1,34 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser
-from app.models.area_promotion import (
-    AreaPromotion, AreaPromotionCreate, AreaPromotionUpdate,
-    AreaPromotionSummary, PromotionValidation, ValidatePromotionRequest,
-    CalculatePriceRequest, CalculatedPrice
+from app.models.promotion import (
+    Promotion, PromotionCreate, PromotionUpdate, PromotionSummary,
+    PromotionValidation, ValidatePromotionRequest
 )
-from app.services import area_promotions_service, pricing_service
+from app.services import promotions_service
 from app.core.exceptions import ValidationError
 
 router = APIRouter()
 
 
-@router.get("/event/{cluster_id}", response_model=List[AreaPromotionSummary])
+@router.get("/event/{cluster_id}", response_model=List[PromotionSummary])
 async def list_promotions(
     cluster_id: int,
-    area_id: Optional[int] = Query(None, description="Filter by area"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
     """
-    List promotions for a specific event/cluster.
+    List all promotions for a specific event/cluster.
+    Each promotion is a combo/package of tickets (areas + quantities).
 
     - **cluster_id**: Event ID
-    - **area_id**: Optional filter by area
     - **is_active**: Optional filter by active status
     """
     try:
-        promotions = await area_promotions_service.get_promotions_by_cluster(
+        promotions = await promotions_service.get_promotions_by_cluster(
             cluster_id=cluster_id,
             profile_id=user.user_id,
-            area_id=area_id,
+            tenant_id=user.tenant_id,
             is_active=is_active
         )
         return promotions
@@ -38,7 +36,7 @@ async def list_promotions(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.get("/event/{cluster_id}/{promo_id}", response_model=AreaPromotion)
+@router.get("/event/{cluster_id}/{promo_id}", response_model=Promotion)
 async def get_promotion(
     cluster_id: int,
     promo_id: str,
@@ -50,42 +48,50 @@ async def get_promotion(
     - **cluster_id**: Event ID
     - **promo_id**: Promotion UUID
     """
-    promo = await area_promotions_service.get_promotion_by_id(
+    promo = await promotions_service.get_promotion_by_id(
         promo_id=promo_id,
         cluster_id=cluster_id,
-        profile_id=user.user_id
+        profile_id=user.user_id,
+        tenant_id=user.tenant_id
     )
     if not promo:
         raise HTTPException(status_code=404, detail="Promotion not found")
     return promo
 
 
-@router.post("/event/{cluster_id}", response_model=AreaPromotion, status_code=201)
+@router.post("/event/{cluster_id}", response_model=Promotion, status_code=201)
 async def create_promotion(
     cluster_id: int,
-    data: AreaPromotionCreate,
+    data: PromotionCreate,
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
     """
-    Create a new promotion for an event area.
+    Create a new promotion (combo/package) for an event.
+
+    Promotions are packages of tickets that can have:
+    - Multiple areas with specific quantities (e.g., 2 VIP + 2 General)
+    - Three pricing types:
+      - **percentage**: Discount percentage off the original price
+      - **fixed_discount**: Fixed amount off the original price
+      - **fixed_price**: Fixed total price for the entire package
 
     - **cluster_id**: Event ID
-    - **area_id**: Area to apply the promotion to
-    - **promotion_name**: Name of the promotion
-    - **promotion_code**: Optional code (e.g., DESCUENTO20)
-    - **discount_type**: "percentage" or "fixed"
-    - **discount_value**: Discount amount (e.g., 20 for 20% or 10000 for $10,000)
-    - **max_discount_amount**: Maximum discount for percentage types
-    - **min_quantity**: Minimum tickets required
-    - **quantity_available**: Number of times code can be used (null for unlimited)
+    - **promotion_name**: Name of the promotion (e.g., "Pack Familiar")
+    - **promotion_code**: REQUIRED code (e.g., FAMILIA2024, 2X1VIP)
+    - **items**: List of areas and quantities in the package
+    - **pricing_type**: "percentage", "fixed_discount", or "fixed_price"
+    - **pricing_value**: Discount % or amount, or fixed package price
+    - **max_discount_amount**: Maximum discount (only for percentage type)
+    - **quantity_available**: Number of times code can be used (null = unlimited)
     - **start_time**: When the promotion becomes active
-    - **end_time**: When the promotion ends (null for no end)
+    - **end_time**: When the promotion ends (null = no end)
     - **priority_order**: Lower number = higher priority
     """
     try:
-        promo = await area_promotions_service.create_promotion(
+        promo = await promotions_service.create_promotion(
             cluster_id=cluster_id,
             profile_id=user.user_id,
+            tenant_id=user.tenant_id,
             data=data
         )
         return promo
@@ -93,28 +99,34 @@ async def create_promotion(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.patch("/event/{cluster_id}/{promo_id}", response_model=AreaPromotion)
+@router.patch("/event/{cluster_id}/{promo_id}", response_model=Promotion)
 async def update_promotion(
     cluster_id: int,
     promo_id: str,
-    data: AreaPromotionUpdate,
+    data: PromotionUpdate,
     user: AuthenticatedUser = Depends(get_authenticated_user)
 ):
     """
     Update a promotion.
+    Can update fields and/or change the items (areas + quantities).
 
     - **cluster_id**: Event ID
     - **promo_id**: Promotion UUID
+    - **items**: Optional - if provided, replaces existing items
     """
-    promo = await area_promotions_service.update_promotion(
-        promo_id=promo_id,
-        cluster_id=cluster_id,
-        profile_id=user.user_id,
-        data=data
-    )
-    if not promo:
-        raise HTTPException(status_code=404, detail="Promotion not found")
-    return promo
+    try:
+        promo = await promotions_service.update_promotion(
+            promo_id=promo_id,
+            cluster_id=cluster_id,
+            profile_id=user.user_id,
+            tenant_id=user.tenant_id,
+            data=data
+        )
+        if not promo:
+            raise HTTPException(status_code=404, detail="Promotion not found")
+        return promo
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete("/event/{cluster_id}/{promo_id}", status_code=204)
@@ -129,10 +141,11 @@ async def delete_promotion(
     - **cluster_id**: Event ID
     - **promo_id**: Promotion UUID
     """
-    deleted = await area_promotions_service.delete_promotion(
+    deleted = await promotions_service.delete_promotion(
         promo_id=promo_id,
         cluster_id=cluster_id,
-        profile_id=user.user_id
+        profile_id=user.user_id,
+        tenant_id=user.tenant_id
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Promotion not found")
@@ -142,31 +155,11 @@ async def delete_promotion(
 async def validate_promotion_code(data: ValidatePromotionRequest):
     """
     Validate a promotion code (public endpoint).
+    Returns the promotion details including all items (areas + quantities).
 
     - **promotion_code**: The code to validate
-    - **area_id**: The area ID to check against
-    - **quantity**: Number of tickets
     """
-    validation = await area_promotions_service.validate_promotion_code(
-        code=data.promotion_code,
-        area_id=data.area_id,
-        quantity=data.quantity
+    validation = await promotions_service.validate_promotion_code(
+        code=data.promotion_code
     )
     return validation
-
-
-@router.post("/calculate-price", response_model=CalculatedPrice)
-async def calculate_price(data: CalculatePriceRequest):
-    """
-    Calculate final price with discounts (public endpoint).
-
-    - **area_id**: The area ID
-    - **quantity**: Number of tickets
-    - **promotion_code**: Optional promotion code
-    """
-    price = await pricing_service.calculate_price(
-        area_id=data.area_id,
-        quantity=data.quantity,
-        promotion_code=data.promotion_code
-    )
-    return price

@@ -55,13 +55,14 @@ async def get_areas_by_event(
                 a.service,
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'available') as units_available,
                 (
-                    SELECT ass.stage_name FROM area_sale_stages ass
-                    WHERE ass.area_id = a.id
-                      AND ass.is_active = true
-                      AND ass.start_time <= NOW()
-                      AND (ass.end_time IS NULL OR ass.end_time > NOW())
-                      AND ass.quantity_available > 0
-                    ORDER BY ass.priority_order ASC
+                    SELECT ss.stage_name FROM sale_stages ss
+                    JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
+                    WHERE ssa.area_id = a.id
+                      AND ss.is_active = true
+                      AND ss.start_time <= NOW()
+                      AND (ss.end_time IS NULL OR ss.end_time > NOW())
+                      AND (ss.quantity_available - ss.quantity_sold) > 0
+                    ORDER BY ss.priority_order ASC
                     LIMIT 1
                 ) as active_sale_stage
             FROM areas a
@@ -300,13 +301,14 @@ async def get_area_availability(cluster_id: int, area_id: int) -> Optional[AreaA
 
         # Get active sale stage name
         sale_stage = await conn.fetchrow("""
-            SELECT stage_name FROM area_sale_stages
-            WHERE area_id = $1
-              AND is_active = true
-              AND start_time <= NOW()
-              AND (end_time IS NULL OR end_time > NOW())
-              AND quantity_available > 0
-            ORDER BY priority_order ASC
+            SELECT ss.stage_name FROM sale_stages ss
+            JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
+            WHERE ssa.area_id = $1
+              AND ss.is_active = true
+              AND ss.start_time <= NOW()
+              AND (ss.end_time IS NULL OR ss.end_time > NOW())
+              AND (ss.quantity_available - ss.quantity_sold) > 0
+            ORDER BY ss.priority_order ASC
             LIMIT 1
         """, area_id)
 
@@ -339,7 +341,18 @@ async def get_public_areas(cluster_id: int) -> List[AreaSummary]:
                 a.status,
                 a.nomenclature_letter,
                 a.service,
-                (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'available') as units_available
+                (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'available') as units_available,
+                (
+                    SELECT ss.stage_name FROM sale_stages ss
+                    JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
+                    WHERE ssa.area_id = a.id
+                      AND ss.is_active = true
+                      AND ss.start_time <= NOW()
+                      AND (ss.end_time IS NULL OR ss.end_time > NOW())
+                      AND (ss.quantity_available - ss.quantity_sold) > 0
+                    ORDER BY ss.priority_order ASC
+                    LIMIT 1
+                ) as active_sale_stage
             FROM areas a
             WHERE a.cluster_id = $1 AND a.status = 'available'
             ORDER BY a.price ASC
@@ -350,7 +363,6 @@ async def get_public_areas(cluster_id: int) -> List[AreaSummary]:
             area_dict = dict(row)
             current_price = await _calculate_current_price(conn, row['id'], row['price'])
             area_dict['current_price'] = current_price
-            area_dict['active_sale_stage'] = None
             areas.append(AreaSummary(**area_dict))
 
         return areas
@@ -359,14 +371,15 @@ async def get_public_areas(cluster_id: int) -> List[AreaSummary]:
 async def _calculate_current_price(conn, area_id: int, base_price: Decimal) -> Decimal:
     """Calculate current price with active sale stage"""
     sale_stage = await conn.fetchrow("""
-        SELECT price_adjustment_type, price_adjustment_value
-        FROM area_sale_stages
-        WHERE area_id = $1
-          AND is_active = true
-          AND start_time <= NOW()
-          AND (end_time IS NULL OR end_time > NOW())
-          AND quantity_available > 0
-        ORDER BY priority_order ASC
+        SELECT ss.price_adjustment_type, ss.price_adjustment_value
+        FROM sale_stages ss
+        JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
+        WHERE ssa.area_id = $1
+          AND ss.is_active = true
+          AND ss.start_time <= NOW()
+          AND (ss.end_time IS NULL OR ss.end_time > NOW())
+          AND (ss.quantity_available - ss.quantity_sold) > 0
+        ORDER BY ss.priority_order ASC
         LIMIT 1
     """, area_id)
 

@@ -233,7 +233,7 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
         promotion_id = None
         if data.promotion_code:
             promo = await conn.fetchrow(
-                "SELECT id FROM area_promotions WHERE promotion_code = $1",
+                "SELECT id FROM promotions WHERE promotion_code = $1",
                 data.promotion_code.upper().strip()
             )
             promotion_id = str(promo['id']) if promo else None

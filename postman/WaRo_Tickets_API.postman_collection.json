@@ -263,14 +263,14 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_name\": \"VIP\",\n    \"description\": \"Zona VIP con acceso preferencial\",\n    \"capacity\": 100,\n    \"price\": 250000,\n    \"currency\": \"COP\",\n    \"nomenclature_letter\": \"V\",\n    \"unit_capacity\": 1,\n    \"service\": 0.1\n}"
+							"raw": "{\n    \"area_name\": \"VIP\",\n    \"description\": \"Zona VIP con acceso preferencial\",\n    \"capacity\": 100,\n    \"price\": 250000,\n    \"currency\": \"COP\",\n    \"nomenclature_letter\": \"V\",\n    \"unit_capacity\": 1,\n    \"service\": 10\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["areas", "event", "{{EVENT_ID}}"]
 						},
-						"description": "Crea una nueva área para un evento. Las units se auto-generan basándose en la capacidad."
+						"description": "Crea una nueva área para un evento. Las units se auto-generan basándose en la capacidad.\n\n**Campos fijos (no editables después):**\n- capacity\n- price\n- nomenclature_letter\n- unit_capacity\n- service"
 					}
 				},
 				{
@@ -282,14 +282,14 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"price\": 300000,\n    \"description\": \"Zona VIP Premium actualizada\"\n}"
+							"raw": "{\n    \"area_name\": \"VIP Premium\",\n    \"description\": \"Zona VIP Premium actualizada\",\n    \"status\": \"available\"\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/areas/event/{{EVENT_ID}}/{{AREA_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["areas", "event", "{{EVENT_ID}}", "{{AREA_ID}}"]
 						},
-						"description": "Actualiza un área existente dentro de un evento"
+						"description": "Actualiza un área existente.\n\n**Campos editables:**\n- area_name\n- description\n- status\n- extra_attributes\n\n**Campos NO editables:**\n- capacity, price, nomenclature_letter, unit_capacity, service"
 					}
 				},
 				{
@@ -407,7 +407,7 @@
 		},
 		{
 			"name": "Sale Stages",
-			"description": "Etapas de venta para areas de eventos (Early Bird, Preventa, etc). Cada stage aplica a un area específica dentro de un evento.",
+			"description": "Etapas de venta automaticas (Early Bird, Preventa, etc). Se definen a nivel de EVENTO/CLUSTER y pueden aplicar a MULTIPLES AREAS via tabla intermedia. NO requieren codigo - se aplican automaticamente por cantidad/tiempo.",
 			"item": [
 				{
 					"name": "List Sale Stages by Event",
@@ -415,15 +415,14 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}?area_id={{AREA_ID}}&is_active=true",
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}?is_active=true",
 							"host": ["{{BASE_URL}}"],
 							"path": ["sale-stages", "event", "{{EVENT_ID}}"],
 							"query": [
-								{"key": "area_id", "value": "{{AREA_ID}}", "description": "Filtrar por area específica", "disabled": true},
 								{"key": "is_active", "value": "true", "description": "Filtrar por estado activo", "disabled": true}
 							]
 						},
-						"description": "Lista todas las etapas de venta de un evento. Opcionalmente filtra por area o estado activo."
+						"description": "Lista todas las etapas de venta de un evento. Cada etapa puede aplicar a multiples areas."
 					}
 				},
 				{
@@ -436,7 +435,7 @@
 							"host": ["{{BASE_URL}}"],
 							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
 						},
-						"description": "Obtiene detalles de una etapa de venta específica dentro de un evento."
+						"description": "Obtiene detalles de una etapa de venta especifica. Incluye lista de areas donde aplica."
 					}
 				},
 				{
@@ -448,14 +447,14 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"stage_name\": \"Early Bird\",\n    \"description\": \"Descuento especial por compra anticipada\",\n    \"price_adjustment_type\": \"percentage\",\n    \"price_adjustment_value\": -20,\n    \"quantity_available\": 100,\n    \"start_time\": \"2026-01-10T00:00:00Z\",\n    \"end_time\": \"2026-01-31T23:59:59Z\",\n    \"priority_order\": 1\n}"
+							"raw": "{\n    \"area_ids\": [1, 2, 3],\n    \"stage_name\": \"Early Bird\",\n    \"description\": \"Descuento especial por compra anticipada\",\n    \"price_adjustment_type\": \"percentage\",\n    \"price_adjustment_value\": -20,\n    \"quantity_available\": 100,\n    \"start_time\": \"2026-01-10T00:00:00Z\",\n    \"end_time\": \"2026-01-31T23:59:59Z\",\n    \"priority_order\": 1\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["sale-stages", "event", "{{EVENT_ID}}"]
 						},
-						"description": "Crea una nueva etapa de venta para un area del evento.\n\n**Campos:**\n- `area_id`: ID del area donde aplica el stage\n- `stage_name`: Nombre (Early Bird, Preventa, General)\n- `price_adjustment_type`: 'percentage' o 'fixed'\n- `price_adjustment_value`: Negativo = descuento (-20 = 20% off)\n- `quantity_available`: Tickets disponibles en esta etapa\n- `start_time`: Inicio de la etapa (ISO 8601)\n- `end_time`: Fin de la etapa (null = sin límite)\n- `priority_order`: Menor número = mayor prioridad"
+						"description": "Crea una nueva etapa de venta para el evento.\n\n**Campos:**\n- `area_ids`: Array de IDs de areas donde aplica (REQUERIDO, min 1)\n- `stage_name`: Nombre (Early Bird, Preventa, General)\n- `price_adjustment_type`: 'percentage' o 'fixed'\n- `price_adjustment_value`: Negativo = descuento (-20 = 20% off)\n- `quantity_available`: Tickets disponibles en esta etapa (compartidos entre areas)\n- `start_time`: Inicio de la etapa (ISO 8601)\n- `end_time`: Fin de la etapa (null = sin limite)\n- `priority_order`: Menor numero = mayor prioridad\n\n**Nota:** Las etapas se aplican AUTOMATICAMENTE, no requieren codigo."
 					}
 				},
 				{
@@ -467,7 +466,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"stage_name\": \"Descuento Especial\",\n    \"description\": \"Descuento fijo de $50,000 COP\",\n    \"price_adjustment_type\": \"fixed\",\n    \"price_adjustment_value\": -50000,\n    \"quantity_available\": 50,\n    \"start_time\": \"2026-02-01T00:00:00Z\",\n    \"end_time\": \"2026-02-15T23:59:59Z\",\n    \"priority_order\": 2\n}"
+							"raw": "{\n    \"area_ids\": [1],\n    \"stage_name\": \"Descuento Especial\",\n    \"description\": \"Descuento fijo de $50,000 COP\",\n    \"price_adjustment_type\": \"fixed\",\n    \"price_adjustment_value\": -50000,\n    \"quantity_available\": 50,\n    \"start_time\": \"2026-02-01T00:00:00Z\",\n    \"end_time\": \"2026-02-15T23:59:59Z\",\n    \"priority_order\": 2\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}",
@@ -493,7 +492,26 @@
 							"host": ["{{BASE_URL}}"],
 							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
 						},
-						"description": "Actualiza una etapa de venta. Solo envía los campos que deseas modificar."
+						"description": "Actualiza una etapa de venta. Solo envia los campos que deseas modificar."
+					}
+				},
+				{
+					"name": "Update Sale Stage Areas",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"area_ids\": [1, 2, 3, 4]\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/sale-stages/event/{{EVENT_ID}}/{{STAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["sale-stages", "event", "{{EVENT_ID}}", "{{STAGE_ID}}"]
+						},
+						"description": "Actualiza las areas donde aplica la etapa. Si se proporciona area_ids, REEMPLAZA las areas existentes."
 					}
 				},
 				{
@@ -532,7 +550,7 @@
 		},
 		{
 			"name": "Promotions",
-			"description": "Promociones para areas de eventos. Cada promocion aplica a un area especifica dentro de un evento (similar a Sale Stages).",
+			"description": "Promociones con codigo OBLIGATORIO. Se definen a nivel de EVENTO/CLUSTER y pueden aplicar a MULTIPLES AREAS via tabla intermedia. REQUIEREN codigo promocional para activarse.",
 			"item": [
 				{
 					"name": "List Promotions by Event",
@@ -540,15 +558,14 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}?area_id={{AREA_ID}}&is_active=true",
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}?is_active=true",
 							"host": ["{{BASE_URL}}"],
 							"path": ["promotions", "event", "{{EVENT_ID}}"],
 							"query": [
-								{"key": "area_id", "value": "{{AREA_ID}}", "description": "Filtrar por area especifica", "disabled": true},
 								{"key": "is_active", "value": "true", "description": "Filtrar por estado activo", "disabled": true}
 							]
 						},
-						"description": "Lista todas las promociones de un evento. Opcionalmente filtra por area o estado activo."
+						"description": "Lista todas las promociones de un evento. Cada promocion puede aplicar a multiples areas."
 					}
 				},
 				{
@@ -561,7 +578,7 @@
 							"host": ["{{BASE_URL}}"],
 							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
 						},
-						"description": "Obtiene detalles de una promocion especifica dentro de un evento."
+						"description": "Obtiene detalles de una promocion especifica. Incluye lista de areas donde aplica."
 					}
 				},
 				{
@@ -573,14 +590,14 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"promotion_name\": \"Descuento Early Bird\",\n    \"promotion_code\": \"EARLY20\",\n    \"description\": \"20% de descuento para compras anticipadas\",\n    \"discount_type\": \"percentage\",\n    \"discount_value\": 20,\n    \"max_discount_amount\": 50000,\n    \"min_quantity\": 1,\n    \"quantity_available\": 100,\n    \"start_time\": \"2026-01-10T00:00:00Z\",\n    \"end_time\": \"2026-03-31T23:59:59Z\",\n    \"priority_order\": 1\n}"
+							"raw": "{\n    \"area_ids\": [1, 2, 3],\n    \"promotion_name\": \"Descuento Early Bird\",\n    \"promotion_code\": \"EARLY20\",\n    \"description\": \"20% de descuento para compras anticipadas\",\n    \"discount_type\": \"percentage\",\n    \"discount_value\": 20,\n    \"max_discount_amount\": 50000,\n    \"min_quantity\": 1,\n    \"quantity_available\": 100,\n    \"start_time\": \"2026-01-10T00:00:00Z\",\n    \"end_time\": \"2026-03-31T23:59:59Z\",\n    \"priority_order\": 1\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}",
 							"host": ["{{BASE_URL}}"],
 							"path": ["promotions", "event", "{{EVENT_ID}}"]
 						},
-						"description": "Crea una nueva promocion para un area del evento.\n\n**Campos:**\n- `area_id`: ID del area donde aplica la promocion\n- `promotion_name`: Nombre de la promocion\n- `promotion_code`: Codigo promocional (ej: EARLY20)\n- `discount_type`: 'percentage' o 'fixed'\n- `discount_value`: Valor del descuento (20 = 20% o $20,000)\n- `max_discount_amount`: Tope maximo de descuento (para porcentajes)\n- `min_quantity`: Minimo de tickets para aplicar\n- `quantity_available`: Usos disponibles (null = ilimitado)\n- `start_time`: Inicio de vigencia (ISO 8601)\n- `end_time`: Fin de vigencia (null = sin limite)\n- `priority_order`: Menor numero = mayor prioridad"
+						"description": "Crea una nueva promocion para el evento.\n\n**Campos:**\n- `area_ids`: Array de IDs de areas donde aplica (REQUERIDO, min 1)\n- `promotion_name`: Nombre de la promocion\n- `promotion_code`: Codigo promocional OBLIGATORIO (ej: EARLY20)\n- `discount_type`: 'percentage' o 'fixed'\n- `discount_value`: Valor del descuento (20 = 20% o $20,000)\n- `max_discount_amount`: Tope maximo de descuento (para porcentajes)\n- `min_quantity`: Minimo de tickets para aplicar\n- `quantity_available`: Usos disponibles (null = ilimitado)\n- `start_time`: Inicio de vigencia (ISO 8601)\n- `end_time`: Fin de vigencia (null = sin limite)\n- `priority_order`: Menor numero = mayor prioridad\n\n**IMPORTANTE:** El codigo promocional es OBLIGATORIO. Las promociones no se aplican automaticamente."
 					}
 				},
 				{
@@ -592,7 +609,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"promotion_name\": \"Descuento VIP\",\n    \"promotion_code\": \"VIP10K\",\n    \"description\": \"$10,000 de descuento por ticket\",\n    \"discount_type\": \"fixed\",\n    \"discount_value\": 10000,\n    \"min_quantity\": 2,\n    \"start_time\": \"2026-01-01T00:00:00Z\",\n    \"end_time\": \"2026-12-31T23:59:59Z\",\n    \"priority_order\": 2\n}"
+							"raw": "{\n    \"area_ids\": [1],\n    \"promotion_name\": \"Descuento VIP\",\n    \"promotion_code\": \"VIP10K\",\n    \"description\": \"$10,000 de descuento por ticket\",\n    \"discount_type\": \"fixed\",\n    \"discount_value\": 10000,\n    \"min_quantity\": 2,\n    \"start_time\": \"2026-01-01T00:00:00Z\",\n    \"end_time\": \"2026-12-31T23:59:59Z\",\n    \"priority_order\": 2\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}",
@@ -619,6 +636,25 @@
 							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
 						},
 						"description": "Actualiza una promocion. Solo envia los campos que deseas modificar."
+					}
+				},
+				{
+					"name": "Update Promotion Areas",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"area_ids\": [1, 2, 3, 4]\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/promotions/event/{{EVENT_ID}}/{{PROMO_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["promotions", "event", "{{EVENT_ID}}", "{{PROMO_ID}}"]
+						},
+						"description": "Actualiza las areas donde aplica la promocion. Si se proporciona area_ids, REEMPLAZA las areas existentes."
 					}
 				},
 				{
@@ -662,14 +698,14 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"promotion_code\": \"EARLY20\",\n    \"area_id\": {{AREA_ID}},\n    \"quantity\": 2\n}"
+							"raw": "{\n    \"promotion_code\": \"EARLY20\",\n    \"area_id\": 1,\n    \"quantity\": 2\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/promotions/validate",
 							"host": ["{{BASE_URL}}"],
 							"path": ["promotions", "validate"]
 						},
-						"description": "Valida un codigo promocional contra un area especifica. Endpoint publico (no requiere autenticacion).\n\n**Validaciones:**\n- Codigo existe\n- Promocion activa\n- Dentro de fechas de vigencia\n- Cantidad minima de tickets\n- Usos disponibles\n- Area coincide"
+						"description": "Valida un codigo promocional contra un area especifica. Endpoint publico (no requiere autenticacion).\n\n**Validaciones:**\n- Codigo existe\n- Promocion activa\n- Dentro de fechas de vigencia\n- Cantidad minima de tickets\n- Usos disponibles\n- Area esta en la lista de areas de la promocion\n\n**Respuesta exitosa incluye:**\n- promotion_id\n- promotion_name\n- discount_type\n- discount_value\n- applies_to_areas (lista de area_ids)"
 					}
 				},
 				{
@@ -681,21 +717,21 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"area_id\": {{AREA_ID}},\n    \"quantity\": 2,\n    \"promotion_code\": \"EARLY20\"\n}"
+							"raw": "{\n    \"area_id\": 1,\n    \"quantity\": 2,\n    \"promotion_code\": \"EARLY20\"\n}"
 						},
 						"url": {
 							"raw": "{{BASE_URL}}/promotions/calculate-price",
 							"host": ["{{BASE_URL}}"],
 							"path": ["promotions", "calculate-price"]
 						},
-						"description": "Calcula el precio final con todos los descuentos aplicados. Endpoint publico.\n\n**Incluye:**\n- Precio base del area\n- Descuento de etapa de venta (automatico)\n- Descuento de promocion (si se proporciona codigo valido)\n- Tarifa de servicio"
+						"description": "Calcula el precio final con todos los descuentos aplicados. Endpoint publico.\n\n**Incluye:**\n- Precio base del area\n- Descuento de etapa de venta (automatico si hay activa)\n- Descuento de promocion (si se proporciona codigo valido)\n- Tarifa de servicio\n\n**Respuesta:**\n- base_price\n- sale_stage_discount\n- promotion_discount\n- service_fee\n- final_price\n- applied_sale_stage (nombre si aplico)\n- applied_promotion (nombre si aplico)"
 					}
 				}
 			]
 		},
 		{
 			"name": "Reservations",
-			"description": "Sistema de reservaciones con timeout de 8 minutos. El email es obligatorio - si no existe el perfil se crea automaticamente.",
+			"description": "Sistema de reservaciones con timeout de 15 minutos. El email es obligatorio - si no existe el perfil se crea automaticamente.",
 			"item": [
 				{
 					"name": "Create Reservation (Public)",
@@ -713,7 +749,7 @@
 							"host": ["{{BASE_URL}}"],
 							"path": ["reservations"]
 						},
-						"description": "Crea una reservacion (endpoint publico, no requiere autenticacion).\n\n**Campos:**\n- `cluster_id`: ID del evento\n- `unit_ids`: Array de IDs de unidades a reservar (max 20)\n- `email`: Email del cliente (obligatorio). Si no existe el perfil, se crea automaticamente.\n- `promotion_code`: Codigo promocional (opcional)\n\n**Comportamiento:**\n- Las unidades se bloquean por 8 minutos\n- Si no se paga en 8 minutos, el cron libera las unidades automaticamente\n- El perfil se crea con datos genericos si no existe"
+						"description": "Crea una reservacion (endpoint publico, no requiere autenticacion).\n\n**Campos:**\n- `cluster_id`: ID del evento\n- `unit_ids`: Array de IDs de unidades a reservar (max 20)\n- `email`: Email del cliente (obligatorio). Si no existe el perfil, se crea automaticamente.\n- `promotion_code`: Codigo promocional (opcional)\n\n**Comportamiento:**\n- Las unidades se bloquean por 15 minutos\n- Si no se paga en 15 minutos, el cron libera las unidades automaticamente\n- El perfil se crea con datos genericos si no existe"
 					}
 				},
 				{

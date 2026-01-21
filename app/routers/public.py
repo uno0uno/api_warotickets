@@ -3,7 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 from app.models.event import EventSummary, EventPublic
 from app.models.area import AreaSummary
-from app.services import events_service, areas_service
+from app.services import events_service, areas_service, promotions_service, sale_stages_service
 
 router = APIRouter()
 
@@ -105,3 +105,33 @@ async def get_public_event_summary(slug: str):
         "areas_count": len(areas),
         "is_sold_out": total_available == 0
     }
+
+
+@router.get("/events/{slug}/promotions")
+async def get_public_event_promotions(slug: str):
+    """
+    Get active promotions for a public event.
+    Shows available promotional packages/combos.
+    No authentication required.
+    """
+    event = await events_service.get_event_by_slug(slug)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    promotions = await promotions_service.get_public_promotions(event.id)
+    return promotions
+
+
+@router.get("/events/{slug}/sale-stages")
+async def get_public_event_sale_stages(slug: str):
+    """
+    Get active sale stages for a public event.
+    Shows current pricing tiers and discounts.
+    No authentication required.
+    """
+    event = await events_service.get_event_by_slug(slug)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    stages = await sale_stages_service.get_public_sale_stages(event.id)
+    return stages
