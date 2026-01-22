@@ -9,6 +9,13 @@ class PriceAdjustmentType(str, Enum):
     """Tipo de ajuste de precio"""
     PERCENTAGE = "percentage"  # Porcentaje (+10 = +10%, -20 = -20%)
     FIXED = "fixed"            # Valor fijo (+5000 = +5000 COP)
+    FIXED_PRICE = "fixed_price"  # Precio fijo total del paquete
+
+
+class SaleStageAreaItem(BaseModel):
+    """Item de area con cantidad para etapa de venta (bundle)"""
+    area_id: int = Field(..., description="ID del area")
+    quantity: int = Field(default=1, ge=1, description="Cantidad de boletas de esta area")
 
 
 class SaleStageBase(BaseModel):
@@ -25,7 +32,8 @@ class SaleStageBase(BaseModel):
 
 class SaleStageCreate(SaleStageBase):
     """Schema para crear etapa de venta - aplica a multiples areas"""
-    area_ids: List[int] = Field(..., min_length=1, description="IDs de las areas donde aplica esta etapa")
+    area_ids: Optional[List[int]] = Field(None, description="IDs de las areas (cantidad=1 por defecto)")
+    area_items: Optional[List[SaleStageAreaItem]] = Field(None, description="Areas con cantidades especificas (bundle)")
 
 
 class SaleStageUpdate(BaseModel):
@@ -39,7 +47,8 @@ class SaleStageUpdate(BaseModel):
     end_time: Optional[datetime] = None
     is_active: Optional[bool] = None
     priority_order: Optional[int] = None
-    area_ids: Optional[List[int]] = Field(None, description="Actualizar areas vinculadas (reemplaza las existentes)")
+    area_ids: Optional[List[int]] = Field(None, description="Actualizar areas (cantidad=1 por defecto)")
+    area_items: Optional[List[SaleStageAreaItem]] = Field(None, description="Actualizar areas con cantidades (bundle)")
 
 
 class SaleStage(SaleStageBase):
@@ -55,9 +64,13 @@ class SaleStage(SaleStageBase):
     is_currently_active: Optional[bool] = None
     quantity_remaining: Optional[int] = None
 
-    # Areas vinculadas
+    # Areas vinculadas con cantidades
     area_ids: List[int] = []
-    areas: List[dict] = []  # [{id, area_name}]
+    areas: List[dict] = []  # [{id, area_name, quantity}]
+
+    # Info de bundle
+    is_bundle: bool = False  # True si tiene cantidades > 1
+    total_tickets: int = 0  # Total de boletas en el bundle
 
     class Config:
         from_attributes = True
@@ -78,7 +91,9 @@ class SaleStageSummary(BaseModel):
     is_currently_active: bool
     priority_order: int
     area_count: int = 0
-    areas: List[dict] = []  # [{id, area_name}]
+    areas: List[dict] = []  # [{id, area_name, quantity}]
+    is_bundle: bool = False
+    total_tickets: int = 0
 
     class Config:
         from_attributes = True

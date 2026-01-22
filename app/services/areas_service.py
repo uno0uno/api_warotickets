@@ -128,8 +128,8 @@ async def create_area(
         if not event:
             raise ValidationError("Event not found or access denied")
 
-        # Serialize extra_attributes to JSON string
-        extra_attrs_json = json.dumps(data.extra_attributes) if data.extra_attributes else '{}'
+        # For asyncpg with jsonb, pass dict directly (not JSON string)
+        extra_attrs = data.extra_attributes if data.extra_attributes else {}
 
         row = await conn.fetchrow("""
             INSERT INTO areas (
@@ -137,7 +137,7 @@ async def create_area(
                 status, nomenclature_letter, unit_capacity, service, extra_attributes,
                 created_at, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, 'available', $7, $8, $9, $10, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, 'available', $7, $8, $9, $10::jsonb, NOW(), NOW()
             )
             RETURNING *
         """,
@@ -150,7 +150,7 @@ async def create_area(
             data.nomenclature_letter,
             data.unit_capacity,
             data.service,
-            extra_attrs_json
+            json.dumps(extra_attrs)
         )
 
         area_id = row['id']
@@ -203,10 +203,12 @@ async def update_area(
         param_idx = 1
 
         for field, value in update_data.items():
-            # Serialize extra_attributes dict to JSON string
+            # Serialize extra_attributes dict to JSON string with cast
             if field == 'extra_attributes' and isinstance(value, dict):
                 value = json.dumps(value)
-            update_fields.append(f"{field} = ${param_idx}")
+                update_fields.append(f"{field} = ${param_idx}::jsonb")
+            else:
+                update_fields.append(f"{field} = ${param_idx}")
             params.append(value)
             param_idx += 1
 
@@ -369,9 +371,14 @@ async def get_public_areas(cluster_id: int) -> List[AreaSummary]:
 
 
 async def _calculate_current_price(conn, area_id: int, base_price: Decimal) -> Decimal:
-    """Calculate current price with active sale stage"""
+    """Calculate current price with active sale stage
+
+    For bundles (quantity > 1), the discount applies to the bundle total,
+    and we return the per-ticket price within the bundle.
+    Example: 2x1 with $30k discount on $30k tickets = ($60k - $30k) / 2 = $15k per ticket
+    """
     sale_stage = await conn.fetchrow("""
-        SELECT ss.price_adjustment_type, ss.price_adjustment_value
+        SELECT ss.price_adjustment_type, ss.price_adjustment_value, ssa.quantity
         FROM sale_stages ss
         JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
         WHERE ssa.area_id = $1
@@ -386,16 +393,26 @@ async def _calculate_current_price(conn, area_id: int, base_price: Decimal) -> D
     if not sale_stage:
         return base_price
 
+    quantity = sale_stage['quantity'] or 1
     adjustment_type = sale_stage['price_adjustment_type']
     adjustment_value = Decimal(str(sale_stage['price_adjustment_value']))
 
     if adjustment_type == 'percentage':
-        # Negative percentage = discount, positive = increase
-        return base_price * (1 + adjustment_value / 100)
+        # Percentage applies to base price (same for bundles and single tickets)
+        current_price = base_price * (1 + adjustment_value / 100)
     elif adjustment_type == 'fixed':
-        return base_price + adjustment_value
+        # Fixed discount applies to bundle total, then divide by quantity
+        # Example: 2 tickets at $30k each, -$30k discount = ($60k - $30k) / 2 = $15k each
+        bundle_total = base_price * quantity
+        discounted_total = bundle_total + adjustment_value
+        current_price = discounted_total / quantity
+    elif adjustment_type == 'fixed_price':
+        # fixed_price is the total bundle price, divide by quantity for per-ticket
+        current_price = adjustment_value / quantity
     else:
-        return base_price
+        current_price = base_price
+
+    return max(Decimal('0'), current_price)
 
 
 async def _generate_units_for_area(conn, area_id: int, capacity: int, prefix: str):
@@ -408,16 +425,16 @@ async def _generate_units_for_area(conn, area_id: int, capacity: int, prefix: st
             prefix,
             None,
             i,
-            '{}'
+            '{}'  # JSON string for jsonb column with explicit cast
         ))
 
-    # Bulk insert
+    # Bulk insert with explicit jsonb cast
     await conn.executemany("""
         INSERT INTO units (
             area_id, status, nomenclature_letter_area,
             nomenclature_number_area, nomenclature_number_unit, extra_attributes,
             created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW())
     """, units_data)
 
     logger.info(f"Generated {capacity} units for area {area_id}")

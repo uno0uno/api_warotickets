@@ -400,6 +400,7 @@ async def get_public_events(
                 (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price
             FROM clusters c
             WHERE c.is_active = true AND c.shadowban = false
+              AND EXISTS (SELECT 1 FROM areas a WHERE a.cluster_id = c.id)
         """
         params = []
         param_idx = 1
