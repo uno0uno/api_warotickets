@@ -47,7 +47,7 @@ def custom_openapi():
     ]
 
     # Public prefixes
-    public_prefixes = ["/public", "/webhooks"]
+    public_prefixes = ["/public", "/webhooks", "/cart"]
 
     for path in openapi_schema["paths"]:
         if path in public_endpoints:
@@ -87,7 +87,7 @@ app.middleware("http")(tenant_detection_middleware)   # runs first
 from app.routers import (
     events, areas, units, public,
     sale_stages, promotions, reservations, payments,
-    qr, transfers, dashboard, auth, tenants
+    qr, transfers, dashboard, auth, tenants, ticket_cart
 )
 
 # Authentication (public endpoints)
@@ -120,6 +120,9 @@ app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
 # Tenants management (requires auth)
 app.include_router(tenants.router, prefix="/tenants", tags=["tenants"])
+
+# Shopping cart (public - no auth required)
+app.include_router(ticket_cart.router, prefix="/cart", tags=["cart"])
 
 @app.get("/")
 async def root():
