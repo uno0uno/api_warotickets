@@ -46,7 +46,7 @@ class TicketCartItemResponse(BaseModel):
     id: str
     area_id: int
     area_name: str
-    quantity: int               # Bundles seleccionados por el usuario
+    quantity: int               # Bundles/paquetes seleccionados por el usuario
 
     # Campos calculados en tiempo real (no almacenados en DB)
     tickets_count: int          # Total boletas (quantity * bundle_size)
@@ -64,6 +64,7 @@ class TicketCartItemResponse(BaseModel):
     # Promotion info
     promotion_id: Optional[str] = None
     promotion_name: Optional[str] = None
+    tickets_per_package: Optional[int] = None  # Boletas de esta area por combo (solo para promos)
 
     @field_validator('id', 'stage_id', 'promotion_id', mode='before')
     @classmethod

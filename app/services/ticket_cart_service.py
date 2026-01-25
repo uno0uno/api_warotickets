@@ -536,17 +536,20 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                 # Promotion still valid - calculate prices
                 promo = promo_validation['promo']
 
-                # Get promotion pricing
+                # Get promotion pricing config (how many tickets per area in ONE combo)
                 promo_items_config = await conn.fetch("""
                     SELECT pi.area_id, pi.quantity
                     FROM promotion_items pi
                     WHERE pi.promotion_id = $1
                 """, promo_id)
 
+                # Build map of area_id -> tickets per package
+                area_qty_per_package = {pi['area_id']: pi['quantity'] for pi in promo_items_config}
+
                 # Calculate how many packages based on total tickets
                 total_promo_tickets = sum(item['quantity'] for item in promo_items)
-                tickets_per_package = sum(pi['quantity'] for pi in promo_items_config)
-                package_count = total_promo_tickets // tickets_per_package if tickets_per_package > 0 else 1
+                tickets_per_package_total = sum(pi['quantity'] for pi in promo_items_config)
+                package_count = total_promo_tickets // tickets_per_package_total if tickets_per_package_total > 0 else 1
 
                 # Promo total price
                 promo_total = Decimal(str(promo['pricing_value'])) * package_count
@@ -557,12 +560,13 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                     item_tickets = row['quantity']
                     item_subtotal = price_per_ticket * item_tickets
                     item_original = base_price * item_tickets
+                    qty_per_pkg = area_qty_per_package.get(row['area_id'], 1)
 
                     item = TicketCartItemResponse(
                         id=str(row['id']),
                         area_id=row['area_id'],
                         area_name=row['area_name'],
-                        quantity=row['quantity'],
+                        quantity=package_count,  # Number of combos
                         tickets_count=item_tickets,
                         unit_price=price_per_ticket,
                         bundle_price=None,
@@ -573,7 +577,8 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                         stage_id=None,
                         stage_status="none",
                         promotion_id=promo_id,
-                        promotion_name=promo['promotion_name']
+                        promotion_name=promo['promotion_name'],
+                        tickets_per_package=qty_per_pkg  # Tickets of this area per combo
                     )
                     items.append(item)
                     subtotal += item_subtotal
