@@ -27,7 +27,6 @@ class PromotionItemResponse(PromotionItem):
 class PromotionBase(BaseModel):
     """Campos base de promocion (nivel evento/cluster) - Sistema de combos/paquetes"""
     promotion_name: str = Field(..., min_length=1, max_length=100, description="Nombre de la promocion")
-    promotion_code: str = Field(..., min_length=1, max_length=50, description="Codigo promocional OBLIGATORIO (ej: 2X1VIP, PACKFAMILIA)")
     description: Optional[str] = Field(None, description="Descripcion de la promocion")
     pricing_type: PricingType = Field(..., description="Tipo: percentage, fixed_discount o fixed_price")
     pricing_value: Decimal = Field(..., gt=0, description="Valor: porcentaje, monto descuento o precio fijo del paquete")
@@ -46,7 +45,6 @@ class PromotionCreate(PromotionBase):
 class PromotionUpdate(BaseModel):
     """Schema para actualizar promocion"""
     promotion_name: Optional[str] = None
-    promotion_code: Optional[str] = None
     description: Optional[str] = None
     pricing_type: Optional[PricingType] = None
     pricing_value: Optional[Decimal] = None
@@ -86,7 +84,6 @@ class PromotionSummary(BaseModel):
     id: str
     cluster_id: int
     promotion_name: str
-    promotion_code: str
     pricing_type: str
     pricing_value: Decimal
     quantity_available: Optional[int] = None
@@ -104,28 +101,6 @@ class PromotionSummary(BaseModel):
         from_attributes = True
 
 
-class PromotionValidation(BaseModel):
-    """Resultado de validacion de codigo promocional"""
-    is_valid: bool
-    promotion_id: Optional[str] = None
-    promotion_name: Optional[str] = None
-    pricing_type: Optional[str] = None
-    pricing_value: Optional[Decimal] = None
-    max_discount_amount: Optional[Decimal] = None
-    error_message: Optional[str] = None
-    items: List[PromotionItemResponse] = []  # Areas y cantidades del combo
-
-
-class ValidatePromotionRequest(BaseModel):
-    """Request para validar codigo promocional"""
-    promotion_code: str = Field(..., min_length=1, max_length=50)
-
-
-class CalculatePriceRequest(BaseModel):
-    """Request para calcular precio con promocion"""
-    promotion_code: Optional[str] = Field(None, max_length=50)
-
-
 class CalculatedPrice(BaseModel):
     """Precio calculado con descuentos"""
     items: List[PromotionItemResponse] = []  # Boletas incluidas
@@ -141,7 +116,6 @@ class PromotionPublic(BaseModel):
     """Schema publico de promocion para compradores"""
     id: str
     promotion_name: str
-    promotion_code: str
     description: Optional[str] = None
     pricing_type: str
     pricing_value: Decimal

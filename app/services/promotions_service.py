@@ -6,7 +6,7 @@ from decimal import Decimal
 from app.database import get_db_connection
 from app.models.promotion import (
     Promotion, PromotionCreate, PromotionUpdate, PromotionSummary,
-    PromotionValidation, PromotionItemResponse
+    PromotionItemResponse
 )
 from app.core.exceptions import ValidationError
 
@@ -218,15 +218,6 @@ async def create_promotion(
         if not await verify_areas_in_cluster(conn, area_ids, cluster_id):
             raise ValidationError("One or more areas do not belong to this cluster")
 
-        # Check for duplicate code in same cluster
-        code = data.promotion_code.upper().strip()
-        existing = await conn.fetchrow(
-            "SELECT id FROM promotions WHERE promotion_code = $1 AND cluster_id = $2",
-            code, cluster_id
-        )
-        if existing:
-            raise ValidationError("Promotion code already exists for this event")
-
         # Validate quantity_available against area capacities
         if data.quantity_available is not None:
             max_available = await calculate_max_promotion_uses(conn, data.items)
@@ -239,19 +230,18 @@ async def create_promotion(
         # Create promotion
         row = await conn.fetchrow("""
             INSERT INTO promotions (
-                cluster_id, promotion_name, promotion_code, description,
+                cluster_id, promotion_name, description,
                 pricing_type, pricing_value, max_discount_amount,
                 quantity_available, uses_count,
                 start_time, end_time, is_active, priority_order,
                 created_at, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $10, true, $11, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, 0, $8, $9, true, $10, NOW(), NOW()
             )
             RETURNING *
         """,
             cluster_id,
             data.promotion_name,
-            code,
             data.description,
             data.pricing_type.value,
             data.pricing_value,
@@ -271,7 +261,7 @@ async def create_promotion(
                 VALUES ($1, $2, $3)
             """, promo_id, item.area_id, item.quantity)
 
-        logger.info(f"Created promotion: {promo_id} - {data.promotion_name} ({code}) for cluster {cluster_id}")
+        logger.info(f"Created promotion: {promo_id} - {data.promotion_name} for cluster {cluster_id}")
 
         # Get items for response
         items_rows = await conn.fetch("""
@@ -343,15 +333,6 @@ async def update_promotion(
             for field, value in update_data.items():
                 if field == 'pricing_type' and value:
                     value = value.value
-                if field == 'promotion_code' and value:
-                    value = value.upper().strip()
-                    # Check for duplicate code in same cluster
-                    code_exists = await conn.fetchrow(
-                        "SELECT id FROM promotions WHERE promotion_code = $1 AND cluster_id = $2 AND id != $3",
-                        value, cluster_id, promo_id
-                    )
-                    if code_exists:
-                        raise ValidationError("Promotion code already exists for this event")
                 update_fields.append(f"{field} = ${param_idx}")
                 params.append(value)
                 param_idx += 1
@@ -460,88 +441,6 @@ async def delete_promotion(
         return deleted
 
 
-async def validate_promotion_code(
-    code: str
-) -> PromotionValidation:
-    """Validate a promotion code (public endpoint)"""
-    async with get_db_connection(use_transaction=False) as conn:
-        # Get promotion by code
-        promo = await conn.fetchrow("""
-            SELECT p.*
-            FROM promotions p
-            WHERE p.promotion_code = $1
-        """, code.upper().strip())
-
-        if not promo:
-            return PromotionValidation(
-                is_valid=False,
-                error_message="Codigo promocional no encontrado"
-            )
-
-        # Check if active
-        if not promo['is_active']:
-            return PromotionValidation(
-                is_valid=False,
-                error_message="Este codigo ya no esta activo"
-            )
-
-        # Check dates
-        now = datetime.now(timezone.utc)
-        start_time = promo['start_time']
-        if start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
-
-        if start_time > now:
-            return PromotionValidation(
-                is_valid=False,
-                error_message="Este codigo aun no esta vigente"
-            )
-
-        if promo['end_time']:
-            end_time = promo['end_time']
-            if end_time.tzinfo is None:
-                end_time = end_time.replace(tzinfo=timezone.utc)
-            if end_time <= now:
-                return PromotionValidation(
-                    is_valid=False,
-                    error_message="Este codigo ha expirado"
-                )
-
-        # Check available uses
-        if promo['quantity_available'] is not None:
-            remaining = promo['quantity_available'] - promo['uses_count']
-            if remaining <= 0:
-                return PromotionValidation(
-                    is_valid=False,
-                    error_message="No hay usos disponibles para este codigo"
-                )
-
-        # Get promotion items
-        items_rows = await conn.fetch("""
-            SELECT a.id as area_id, a.area_name, a.price as area_price, pi.quantity
-            FROM promotion_items pi
-            JOIN areas a ON pi.area_id = a.id
-            WHERE pi.promotion_id = $1
-        """, promo['id'])
-
-        items = [PromotionItemResponse(
-            area_id=r['area_id'],
-            quantity=r['quantity'],
-            area_name=r['area_name'],
-            area_price=r['area_price']
-        ) for r in items_rows]
-
-        return PromotionValidation(
-            is_valid=True,
-            promotion_id=str(promo['id']),
-            promotion_name=promo['promotion_name'],
-            pricing_type=promo['pricing_type'],
-            pricing_value=promo['pricing_value'],
-            max_discount_amount=promo['max_discount_amount'],
-            items=[item.model_dump() for item in items]
-        )
-
-
 async def increment_promotion_uses(promo_id: str, quantity: int = 1) -> bool:
     """Increment the uses count of a promotion after use"""
     async with get_db_connection() as conn:
@@ -582,7 +481,6 @@ async def get_public_promotions(cluster_id: int) -> List[dict]:
             SELECT
                 p.id,
                 p.promotion_name,
-                p.promotion_code,
                 p.description,
                 p.pricing_type,
                 p.pricing_value,
@@ -638,7 +536,6 @@ async def get_public_promotions(cluster_id: int) -> List[dict]:
             result.append({
                 'id': str(promo['id']),
                 'promotion_name': promo['promotion_name'],
-                'promotion_code': promo['promotion_code'],
                 'description': promo['description'],
                 'pricing_type': pricing_type,
                 'pricing_value': pricing_value,

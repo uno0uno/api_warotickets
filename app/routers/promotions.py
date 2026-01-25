@@ -2,8 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser
 from app.models.promotion import (
-    Promotion, PromotionCreate, PromotionUpdate, PromotionSummary,
-    PromotionValidation, ValidatePromotionRequest
+    Promotion, PromotionCreate, PromotionUpdate, PromotionSummary
 )
 from app.services import promotions_service
 from app.core.exceptions import ValidationError
@@ -77,12 +76,11 @@ async def create_promotion(
 
     - **cluster_id**: Event ID
     - **promotion_name**: Name of the promotion (e.g., "Pack Familiar")
-    - **promotion_code**: REQUIRED code (e.g., FAMILIA2024, 2X1VIP)
     - **items**: List of areas and quantities in the package
     - **pricing_type**: "percentage", "fixed_discount", or "fixed_price"
     - **pricing_value**: Discount % or amount, or fixed package price
     - **max_discount_amount**: Maximum discount (only for percentage type)
-    - **quantity_available**: Number of times code can be used (null = unlimited)
+    - **quantity_available**: Number of packages available (null = unlimited)
     - **start_time**: When the promotion becomes active
     - **end_time**: When the promotion ends (null = no end)
     - **priority_order**: Lower number = higher priority
@@ -151,15 +149,3 @@ async def delete_promotion(
         raise HTTPException(status_code=404, detail="Promotion not found")
 
 
-@router.post("/validate", response_model=PromotionValidation)
-async def validate_promotion_code(data: ValidatePromotionRequest):
-    """
-    Validate a promotion code (public endpoint).
-    Returns the promotion details including all items (areas + quantities).
-
-    - **promotion_code**: The code to validate
-    """
-    validation = await promotions_service.validate_promotion_code(
-        code=data.promotion_code
-    )
-    return validation
