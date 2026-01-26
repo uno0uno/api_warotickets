@@ -571,7 +571,10 @@ async def send_purchase_confirmation_email(
     async with get_db_connection() as conn:
         # Get event info from reservation
         event_info = await conn.fetchrow("""
-            SELECT DISTINCT c.cluster_name, c.start_date_event, c.event_location
+            SELECT DISTINCT
+                c.cluster_name,
+                c.start_date,
+                c.extra_attributes->>'location' as event_location
             FROM reservations r
             JOIN reservation_units ru ON ru.reservation_id = r.id
             JOIN units u ON ru.unit_id = u.id
@@ -626,7 +629,7 @@ async def send_purchase_confirmation_email(
         success = await email_service.send_simple_purchase_confirmation(
             to_email=customer_email,
             event_name=event_info['cluster_name'],
-            event_date=event_info['start_date_event'],
+            event_date=event_info['start_date'],
             event_location=event_info['event_location'],
             tickets=tickets,
             subtotal=subtotal,
