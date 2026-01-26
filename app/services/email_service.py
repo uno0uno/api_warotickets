@@ -380,19 +380,14 @@ IMPORTANTE
 Gracias por tu compra!
 
 ----
-Saifer 101 (Anderson Arevalo)
-Fundador WaRo Tickets
-Bogota, D.C, Colombia
-Tel: 3142047013
-Correo: anderson.arevalo@warotickets.com
-Tecnologia colombiana para el mundo.
+{settings.email_signature}
 """
 
         # Send email (text only to avoid spam filters)
         client = get_ses_client()
 
         response = client.send_email(
-            Source=f"Saifer 101 de WaRo Tickets <{settings.aws_ses_from_email}>",
+            Source=f"{settings.aws_ses_from_name} <{settings.aws_ses_from_email}>",
             Destination={'ToAddresses': [to_email]},
             Message={
                 'Subject': {'Data': f"Compra confirmada - {event_name}", 'Charset': 'UTF-8'},

@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     aws_region: Optional[str] = Field(default=None, alias='NUXT_PRIVATE_AWS_REGION')
     email_from: Optional[str] = Field(default=None, alias='NUXT_PRIVATE_EMAIL_FROM')
     aws_ses_from_email: Optional[str] = Field(default=None, alias='AWS_SES_FROM_EMAIL')
+    aws_ses_from_name: Optional[str] = Field(default='Saifer 101 de WaRo Tickets', alias='AWS_SES_FROM_NAME')
+    email_signature: Optional[str] = Field(
+        default='Saifer 101 (Anderson Arevalo)\nFundador WaRo Tickets\nBogota, D.C, Colombia\nTel: 3142047013\nCorreo: anderson.arevalo@warotickets.com\nTecnologia colombiana para el mundo.',
+        alias='EMAIL_SIGNATURE'
+    )
 
     # Cloudflare R2 - S3-compatible storage
     r2_access_key_id: Optional[str] = Field(default=None, alias='NUXT_PRIVATE_R2_ACCESS_KEY_ID')
