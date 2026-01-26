@@ -199,12 +199,11 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
         # Calculate pricing
         total = Decimal("0")
         for unit in units_info:
-            price_info = await pricing_service.calculate_price(
+            price_info = await pricing_service.calculate_area_price(
                 unit['area_id'],
-                quantity=1,
-                promotion_code=data.promotion_code
+                quantity=1
             )
-            total += price_info.final_price
+            total += price_info['final_price']
 
         # Create reservation
         reservation_row = await conn.fetchrow("""

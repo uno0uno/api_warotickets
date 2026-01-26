@@ -32,10 +32,10 @@ class TicketCartItemUpdate(BaseModel):
 
 class CartCheckout(BaseModel):
     """Schema para checkout del carrito"""
-    customer_name: str = Field(..., min_length=2, max_length=100, description="Nombre del cliente")
     customer_email: str = Field(..., description="Email del cliente")
-    customer_phone: str = Field(..., min_length=7, max_length=20, description="Telefono del cliente")
-    accept_terms: bool = Field(..., description="Acepta terminos y condiciones")
+    customer_name: Optional[str] = Field(None, min_length=2, max_length=100, description="Nombre del cliente (opcional)")
+    customer_phone: Optional[str] = Field(None, min_length=7, max_length=20, description="Telefono del cliente (opcional)")
+    accept_terms: bool = Field(default=True, description="Acepta terminos y condiciones")
     return_url: Optional[str] = Field(None, description="URL de retorno despues del pago")
 
 
@@ -53,8 +53,12 @@ class TicketCartItemResponse(BaseModel):
     unit_price: Decimal         # Precio por boleta con descuento
     bundle_price: Optional[Decimal]  # Precio del bundle (si aplica)
     original_price: Decimal     # Precio original sin descuento
-    subtotal: Decimal           # Total del item
+    subtotal: Decimal           # Total del item (sin fee)
     bundle_size: int            # Tamano del bundle (1, 2, 3...)
+
+    # Service fee (Waro Tickets fee)
+    service_fee_per_ticket: Decimal = Decimal('0')  # Fee por boleta
+    service_fee_total: Decimal = Decimal('0')       # Fee total del item
 
     # Stage info (calculado desde estado actual)
     stage_name: Optional[str] = None
@@ -92,9 +96,10 @@ class TicketCartResponse(BaseModel):
     cluster_slug: str
     status: str
     items: List[TicketCartItemResponse]
-    subtotal: Decimal           # Sum of all item subtotals
+    subtotal: Decimal           # Sum of all item subtotals (sin fee)
     discount: Decimal           # Total discount applied
-    total: Decimal              # Final total
+    service_fee: Decimal = Decimal('0')  # Total service fee (Waro Tickets)
+    total: Decimal              # Final total (subtotal + service_fee)
     tickets_count: int          # Total tickets in cart
     expires_at: Optional[datetime] = None
     created_at: datetime

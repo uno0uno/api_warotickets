@@ -12,6 +12,38 @@ from app.core.exceptions import ValidationError, DatabaseError
 logger = logging.getLogger(__name__)
 
 
+# Service fee configuration (from COTIZACION_WARO_TICKETS_2026.pdf)
+# Formula: price * 2.39% + fixed_fee (varies by capacity tier)
+SERVICE_FEE_RATE = Decimal('0.0239')
+SERVICE_FEE_TIERS = [
+    (500, Decimal('1290')),      # 1-500 capacity: $1,290 fixed
+    (2000, Decimal('1190')),     # 501-2,000 capacity: $1,190 fixed
+    (5000, Decimal('1090')),     # 2,001-5,000 capacity: $1,090 fixed
+    (999999, Decimal('990'))     # 5,000+ capacity: $990 fixed
+]
+
+
+def calculate_service_fee(price: Decimal, capacity: int) -> Decimal:
+    """
+    Calculate service fee per ticket based on price and area capacity tier.
+    Fee = price * 2.39% + fixed_fee (based on capacity tier)
+    Returns the fee amount per ticket.
+    """
+    if price <= 0:
+        return Decimal('0')
+
+    # Determine fixed fee based on capacity tier
+    fixed_fee = Decimal('1290')  # Default to smallest tier
+    for max_capacity, fee in SERVICE_FEE_TIERS:
+        if capacity <= max_capacity:
+            fixed_fee = fee
+            break
+
+    # Calculate: price * 2.39% + fixed_fee (rounded to nearest peso)
+    service_fee = (price * SERVICE_FEE_RATE + fixed_fee).quantize(Decimal('1'))
+    return max(Decimal('0'), service_fee)
+
+
 def _parse_extra_attributes(value):
     """Parse extra_attributes from string to dict if needed"""
     if value is None:
@@ -131,6 +163,10 @@ async def create_area(
         # For asyncpg with jsonb, pass dict directly (not JSON string)
         extra_attrs = data.extra_attributes if data.extra_attributes else {}
 
+        # Calculate service fee automatically based on price and capacity
+        service_fee = calculate_service_fee(Decimal(str(data.price)), data.capacity)
+        logger.info(f"Calculated service fee for area: ${service_fee} (price: ${data.price}, capacity: {data.capacity})")
+
         row = await conn.fetchrow("""
             INSERT INTO areas (
                 cluster_id, area_name, description, capacity, price, currency,
@@ -149,7 +185,7 @@ async def create_area(
             data.currency,
             data.nomenclature_letter,
             data.unit_capacity,
-            data.service,
+            float(service_fee),  # Store calculated fee, not user-provided
             json.dumps(extra_attrs)
         )
 

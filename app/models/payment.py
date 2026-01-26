@@ -46,6 +46,7 @@ class PaymentCreate(BaseModel):
     customer_name: Optional[str] = Field(None, description="Nombre del cliente")
     customer_phone: Optional[str] = Field(None, description="Telefono del cliente")
     return_url: Optional[str] = Field(None, description="URL de retorno post-pago")
+    amount: Optional[Decimal] = Field(None, gt=0, description="Monto a cobrar (si no se proporciona, se calcula del precio base)")
 
 
 class Payment(PaymentBase):

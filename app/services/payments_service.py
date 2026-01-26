@@ -76,19 +76,24 @@ async def create_payment_intent(data: PaymentCreate) -> PaymentIntentResponse:
                 expires_at=payment['payment_date'] + timedelta(minutes=PAYMENT_TIMEOUT_MINUTES)
             )
 
-        # Calculate total amount from reservation units
-        total = await conn.fetchval("""
-            SELECT COALESCE(SUM(a.price), 0)
-            FROM reservation_units ru
-            JOIN units u ON ru.unit_id = u.id
-            JOIN areas a ON u.area_id = a.id
-            WHERE ru.reservation_id = $1 AND ru.status = 'reserved'
-        """, data.reservation_id)
+        # Use provided amount or calculate from reservation units (base price)
+        if data.amount:
+            # Amount provided (from cart with discounts)
+            amount = data.amount
+        else:
+            # Calculate from base prices (fallback)
+            total = await conn.fetchval("""
+                SELECT COALESCE(SUM(a.price), 0)
+                FROM reservation_units ru
+                JOIN units u ON ru.unit_id = u.id
+                JOIN areas a ON u.area_id = a.id
+                WHERE ru.reservation_id = $1 AND ru.status = 'reserved'
+            """, data.reservation_id)
 
-        if not total or total <= 0:
-            raise ValidationError("No valid units in reservation")
+            if not total or total <= 0:
+                raise ValidationError("No valid units in reservation")
 
-        amount = Decimal(str(total))
+            amount = Decimal(str(total))
         amount_in_cents = int(amount * 100)
 
         # Generate unique reference

@@ -141,19 +141,13 @@ async def remove_promotion_package(cart_id: str, promotion_id: str):
 @router.post("/{cart_id}/checkout", response_model=CheckoutResponse)
 async def checkout_cart(cart_id: str, data: CartCheckout):
     """Convert cart to reservation and create payment"""
-    if not data.accept_terms:
-        raise HTTPException(
-            status_code=400,
-            detail="Debes aceptar los terminos y condiciones"
-        )
-
     try:
         return await ticket_cart_service.checkout(
-            cart_id,
-            data.customer_name,
-            data.customer_email,
-            data.customer_phone,
-            data.return_url or "http://localhost:8888/checkout/resultado"
+            cart_id=cart_id,
+            customer_email=data.customer_email,
+            customer_name=data.customer_name,
+            customer_phone=data.customer_phone,
+            return_url=data.return_url or "http://localhost:8888/pago/resultado"
         )
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))

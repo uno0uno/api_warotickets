@@ -320,9 +320,14 @@ async def add_item(
 
         total_other_tickets = 0
         for item in current_tickets_result:
-            item_stage = await get_active_stage_for_area(conn, item['area_id'])
-            item_bundle = item_stage.get('bundle_size', 1) if item_stage else 1
-            total_other_tickets += item['quantity'] * item_bundle
+            if item['promotion_id']:
+                # Promotion items: quantity IS the ticket count (no bundle)
+                total_other_tickets += item['quantity']
+            else:
+                # Individual items: multiply by current stage's bundle_size
+                item_stage = await get_active_stage_for_area(conn, item['area_id'])
+                item_bundle = item_stage.get('bundle_size', 1) if item_stage else 1
+                total_other_tickets += item['quantity'] * item_bundle
 
         if total_other_tickets + tickets_count > MAX_TICKETS_PER_CART:
             raise ValidationError(f"Maximo {MAX_TICKETS_PER_CART} boletas por carrito")
@@ -447,9 +452,14 @@ async def add_promotion_package(
 
         total_other_tickets = 0
         for item in current_tickets_result:
-            item_stage = await get_active_stage_for_area(conn, item['area_id'])
-            item_bundle = item_stage.get('bundle_size', 1) if item_stage else 1
-            total_other_tickets += item['quantity'] * item_bundle
+            if item['promotion_id']:
+                # Promotion items: quantity IS the ticket count (no bundle)
+                total_other_tickets += item['quantity']
+            else:
+                # Individual items: multiply by current stage's bundle_size
+                item_stage = await get_active_stage_for_area(conn, item['area_id'])
+                item_bundle = item_stage.get('bundle_size', 1) if item_stage else 1
+                total_other_tickets += item['quantity'] * item_bundle
 
         if total_other_tickets + promo_tickets > MAX_TICKETS_PER_CART:
             raise ValidationError(f"Este pedido excede el maximo de {MAX_TICKETS_PER_CART} boletas")
@@ -490,10 +500,11 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
         if not cart:
             raise ValidationError("Carrito no encontrado")
 
-        # Get items (only stored fields: area_id, quantity, promotion_id)
+        # Get items (only stored fields: area_id, quantity, promotion_id) + service fee
         items_rows = await conn.fetch("""
             SELECT tci.id, tci.area_id, tci.quantity, tci.promotion_id,
-                   a.area_name, a.price as base_price
+                   a.area_name, a.price as base_price,
+                   COALESCE(a.service, 0) as service_fee
             FROM ticket_cart_items tci
             JOIN areas a ON tci.area_id = a.id
             WHERE tci.cart_id = $1
@@ -504,6 +515,7 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
         subtotal = Decimal('0')
         total_tickets = 0
         original_total = Decimal('0')
+        total_service_fee = Decimal('0')
         converted_promotions = []
 
         # Group items by promotion_id to detect expired promotions
@@ -562,6 +574,10 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                     item_original = base_price * item_tickets
                     qty_per_pkg = area_qty_per_package.get(row['area_id'], 1)
 
+                    # Service fee per ticket (from area.service)
+                    service_fee_per_ticket = Decimal(str(row.get('service_fee', 0) or 0))
+                    item_service_fee = service_fee_per_ticket * item_tickets
+
                     item = TicketCartItemResponse(
                         id=str(row['id']),
                         area_id=row['area_id'],
@@ -573,6 +589,8 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                         original_price=base_price,
                         subtotal=item_subtotal,
                         bundle_size=1,
+                        service_fee_per_ticket=service_fee_per_ticket,
+                        service_fee_total=item_service_fee,
                         stage_name=None,
                         stage_id=None,
                         stage_status="none",
@@ -584,12 +602,14 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                     subtotal += item_subtotal
                     total_tickets += item_tickets
                     original_total += item_original
+                    total_service_fee += item_service_fee
 
         # Re-fetch individual items (may have new ones from converted promotions)
         if converted_promotions:
             individual_items = await conn.fetch("""
                 SELECT tci.id, tci.area_id, tci.quantity, tci.promotion_id,
-                       a.area_name, a.price as base_price
+                       a.area_name, a.price as base_price,
+                       COALESCE(a.service, 0) as service_fee
                 FROM ticket_cart_items tci
                 JOIN areas a ON tci.area_id = a.id
                 WHERE tci.cart_id = $1 AND tci.promotion_id IS NULL
@@ -607,6 +627,10 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
             # Calculate prices based on current state
             prices = calculate_item_prices(base_price, quantity, stage)
 
+            # Service fee per ticket (from area.service)
+            service_fee_per_ticket = Decimal(str(row.get('service_fee', 0) or 0))
+            item_service_fee = service_fee_per_ticket * prices['tickets_count']
+
             item = TicketCartItemResponse(
                 id=str(row['id']),
                 area_id=row['area_id'],
@@ -618,6 +642,8 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
                 original_price=prices['original_price'],
                 subtotal=prices['subtotal'],
                 bundle_size=prices['bundle_size'],
+                service_fee_per_ticket=service_fee_per_ticket,
+                service_fee_total=item_service_fee,
                 stage_name=prices['stage_name'],
                 stage_id=prices['stage_id'],
                 stage_status=prices['stage_status'],
@@ -628,9 +654,11 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
             subtotal += prices['subtotal']
             total_tickets += prices['tickets_count']
             original_total += prices['original_price'] * prices['tickets_count']
+            total_service_fee += item_service_fee
 
         discount = original_total - subtotal
-        total = subtotal
+        # Total includes subtotal (product prices) + service fees
+        total = subtotal + total_service_fee
 
         return TicketCartResponse(
             id=str(cart['id']),
@@ -641,6 +669,7 @@ async def get_cart(cart_id: str) -> TicketCartResponse:
             items=items,
             subtotal=subtotal,
             discount=max(Decimal('0'), discount),
+            service_fee=total_service_fee,
             total=max(Decimal('0'), total),
             tickets_count=total_tickets,
             expires_at=cart['expires_at'],
@@ -703,12 +732,16 @@ async def clear_cart(cart_id: str) -> bool:
 
 async def checkout(
     cart_id: str,
-    customer_name: str,
     customer_email: str,
-    customer_phone: str,
-    return_url: str
+    customer_name: Optional[str] = None,
+    customer_phone: Optional[str] = None,
+    return_url: Optional[str] = None
 ) -> CheckoutResponse:
-    """Convert cart to reservation and create payment - Recalculates tickets at checkout"""
+    """Convert cart to reservation and create payment - Uses cart's calculated total"""
+    # First, get the full cart with calculated prices (respects promotions and stages)
+    full_cart = await get_cart(cart_id)
+    cart_total = full_cart.total  # This is the correct total with all discounts
+
     async with get_db_connection() as conn:
         # Get cart
         cart = await conn.fetchrow("""
@@ -728,25 +761,30 @@ async def checkout(
         if not items:
             raise ValidationError("El carrito esta vacio")
 
-        # Calculate tickets_count for each item based on current stage
-        unit_ids = []
+        # Group items by area and calculate total tickets needed per area
+        area_tickets: dict[int, int] = {}
         for item in items:
+            area_id = item['area_id']
             # For promotion items, quantity IS tickets_count (no bundle)
             if item['promotion_id']:
                 tickets_count = item['quantity']
             else:
                 # For individual items, calculate based on current stage
-                stage = await get_active_stage_for_area(conn, item['area_id'])
+                stage = await get_active_stage_for_area(conn, area_id)
                 bundle_size = stage.get('bundle_size', 1) if stage else 1
                 tickets_count = item['quantity'] * bundle_size
 
-            # Select available units
+            area_tickets[area_id] = area_tickets.get(area_id, 0) + tickets_count
+
+        # Select units for each area (no duplicates)
+        unit_ids = []
+        for area_id, tickets_count in area_tickets.items():
             available_units = await conn.fetch("""
                 SELECT id FROM units
                 WHERE area_id = $1 AND status = 'available'
                 ORDER BY nomenclature_number_unit
                 LIMIT $2
-            """, item['area_id'], tickets_count)
+            """, area_id, tickets_count)
 
             if len(available_units) < tickets_count:
                 raise ValidationError(
@@ -755,17 +793,13 @@ async def checkout(
 
             unit_ids.extend([u['id'] for u in available_units])
 
-        # Mark cart as converted
-        await conn.execute("""
-            UPDATE ticket_carts SET status = 'converted', updated_at = NOW()
-            WHERE id = $1
-        """, cart_id)
+        cluster_id = cart['cluster_id']
 
     # Create reservation using existing service
     from app.models.reservation import ReservationCreate
 
     reservation_data = ReservationCreate(
-        cluster_id=cart['cluster_id'],
+        cluster_id=cluster_id,
         unit_ids=unit_ids,
         email=customer_email
     )
@@ -775,25 +809,33 @@ async def checkout(
         data=reservation_data
     )
 
-    # Create payment intent
-    from app.models.payment import PaymentIntentCreate
+    # Create payment intent with cart's calculated total (respects discounts)
+    from app.models.payment import PaymentCreate
 
-    payment_data = PaymentIntentCreate(
+    payment_data = PaymentCreate(
         reservation_id=reservation_response.reservation.id,
         gateway="wompi",
         customer_email=customer_email,
         customer_name=customer_name,
         customer_phone=customer_phone,
-        return_url=return_url
+        return_url=return_url,
+        amount=cart_total  # Pass the cart total with all discounts applied
     )
 
     payment_response = await payments_service.create_payment_intent(payment_data)
 
+    # Mark cart as converted ONLY after successful reservation and payment creation
+    async with get_db_connection() as conn:
+        await conn.execute("""
+            UPDATE ticket_carts SET status = 'converted', updated_at = NOW()
+            WHERE id = $1
+        """, cart_id)
+
     return CheckoutResponse(
         reservation_id=reservation_response.reservation.id,
-        payment_id=payment_response['payment_id'],
-        checkout_url=payment_response['checkout_url'],
-        amount=Decimal(str(payment_response['amount'])),
-        currency=payment_response['currency'],
+        payment_id=str(payment_response.payment_id),
+        checkout_url=payment_response.checkout_url,
+        amount=Decimal(str(payment_response.amount)),
+        currency=payment_response.currency,
         expires_at=reservation_response.expires_at
     )
