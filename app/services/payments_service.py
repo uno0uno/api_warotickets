@@ -18,7 +18,7 @@ from app.models.payment import (
     Payment, PaymentCreate, PaymentSummary,
     PaymentIntentResponse, PaymentConfirmation
 )
-from app.services import reservations_service
+from app.services import reservations_service, email_service
 from app.services.gateways import get_gateway
 from app.services.gateways.base import PaymentData, PaymentStatus
 from app.core.exceptions import PaymentError, ValidationError
@@ -264,6 +264,9 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
         logger.warning(f"Payment not found for reference: {result.reference}")
         return False
 
+    # Check if payment was already finalized (avoid duplicate processing)
+    was_already_approved = payment.status == 'approved'
+
     # Update payment status
     new_status = result.status.value
     is_final = new_status in ('approved', 'declined', 'voided', 'error')
@@ -291,10 +294,21 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
 
         logger.info(f"Updated payment {payment.id} status to {result.status.value}")
 
-        # If approved, confirm reservation
-        if result.status == PaymentStatus.APPROVED:
+        # If approved and wasn't already, confirm reservation and send email
+        if result.status == PaymentStatus.APPROVED and not was_already_approved:
             await reservations_service.confirm_reservation(payment.reservation_id)
             logger.info(f"Confirmed reservation {payment.reservation_id}")
+
+            # Send purchase confirmation email
+            try:
+                await send_purchase_confirmation_email(
+                    payment.reservation_id,
+                    payment.customer_email,
+                    payment.amount,
+                    payment.reference
+                )
+            except Exception as e:
+                logger.error(f"Failed to send confirmation email via webhook: {e}")
 
     return True
 
@@ -525,10 +539,106 @@ async def verify_transaction(transaction_id: str) -> Payment:
 
         logger.info(f"Updated payment {payment.id} to status {new_status} via verify_transaction")
 
-        # If approved, confirm reservation
+        # If approved, confirm reservation and send email
         if new_status == "approved":
             await reservations_service.confirm_reservation(payment.reservation_id)
             logger.info(f"Confirmed reservation {payment.reservation_id} via verify_transaction")
 
+            # Send purchase confirmation email
+            try:
+                await send_purchase_confirmation_email(
+                    payment.reservation_id,
+                    payment.customer_email,
+                    payment.amount,
+                    payment.reference
+                )
+            except Exception as e:
+                logger.error(f"Failed to send confirmation email: {e}")
+
     # Return updated payment
     return await get_payment_by_id(payment.id)
+
+
+async def send_purchase_confirmation_email(
+    reservation_id: str,
+    customer_email: str,
+    amount: Decimal,
+    reference: str
+) -> bool:
+    """
+    Gather purchase details and send confirmation email.
+    """
+    async with get_db_connection() as conn:
+        # Get event info from reservation
+        event_info = await conn.fetchrow("""
+            SELECT DISTINCT c.cluster_name, c.start_date_event, c.event_location
+            FROM reservations r
+            JOIN reservation_units ru ON ru.reservation_id = r.id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            WHERE r.id = $1
+            LIMIT 1
+        """, reservation_id)
+
+        if not event_info:
+            logger.warning(f"Could not find event info for reservation {reservation_id}")
+            return False
+
+        # Get tickets summary grouped by area
+        tickets_data = await conn.fetch("""
+            SELECT
+                a.area_name,
+                COUNT(ru.id) as quantity,
+                a.price as unit_price,
+                COALESCE(a.service, 0) as service_fee_per_ticket
+            FROM reservation_units ru
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            WHERE ru.reservation_id = $1
+            GROUP BY a.area_name, a.price, a.service
+            ORDER BY a.area_name
+        """, reservation_id)
+
+        # Build tickets list
+        tickets = []
+        subtotal = Decimal('0')
+        total_service_fee = Decimal('0')
+
+        for row in tickets_data:
+            qty = row['quantity']
+            price = Decimal(str(row['unit_price']))
+            fee = Decimal(str(row['service_fee_per_ticket'] or 0))
+            ticket_subtotal = price * qty
+            ticket_fee = fee * qty
+
+            tickets.append({
+                'area_name': row['area_name'],
+                'quantity': qty,
+                'unit_price': float(price),
+                'subtotal': float(ticket_subtotal)
+            })
+
+            subtotal += ticket_subtotal
+            total_service_fee += ticket_fee
+
+        # Send email
+        success = await email_service.send_simple_purchase_confirmation(
+            to_email=customer_email,
+            event_name=event_info['cluster_name'],
+            event_date=event_info['start_date_event'],
+            event_location=event_info['event_location'],
+            tickets=tickets,
+            subtotal=subtotal,
+            service_fee=total_service_fee,
+            total=amount,
+            reference=reference,
+            payment_method="Tarjeta de credito/debito"
+        )
+
+        if success:
+            logger.info(f"Purchase confirmation email sent to {customer_email}")
+        else:
+            logger.warning(f"Failed to send purchase confirmation to {customer_email}")
+
+        return success

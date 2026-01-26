@@ -1,6 +1,7 @@
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 from app.config import settings
@@ -295,3 +296,118 @@ async def send_transfer_accepted_notification(
         subject=f"✅ Transferencia aceptada - {event_name}",
         html_body=html_body
     )
+
+
+async def send_simple_purchase_confirmation(
+    to_email: str,
+    event_name: str,
+    event_date: Optional[datetime],
+    event_location: Optional[str],
+    tickets: List[Dict[str, Any]],
+    subtotal: Decimal,
+    service_fee: Decimal,
+    total: Decimal,
+    reference: str,
+    payment_method: Optional[str] = None
+) -> bool:
+    """
+    Send simple text-based purchase confirmation email.
+    Similar style to WARO COLOMBIA - plain text, no fancy HTML.
+
+    Args:
+        to_email: Customer email
+        event_name: Name of the event
+        event_date: Date of the event
+        event_location: Venue/location
+        tickets: List of tickets [{area_name, quantity, unit_price, subtotal}]
+        subtotal: Subtotal before fees
+        service_fee: Service fee amount
+        total: Total amount paid
+        reference: Payment reference
+        payment_method: Payment method used (optional)
+    """
+    try:
+        # Format date
+        if event_date:
+            event_date_str = event_date.strftime('%d de %B de %Y a las %H:%M')
+        else:
+            event_date_str = 'Por confirmar'
+
+        # Build tickets list
+        tickets_list = ""
+        total_tickets = 0
+        for ticket in tickets:
+            qty = ticket.get('quantity', 1)
+            total_tickets += qty
+            area = ticket.get('area_name', 'General')
+            price = ticket.get('unit_price', 0)
+            ticket_subtotal = ticket.get('subtotal', price * qty)
+            tickets_list += f"  - {qty}x {area}: ${ticket_subtotal:,.0f} COP\n"
+
+        # Format amounts
+        subtotal_str = f"${subtotal:,.0f}" if subtotal else "$0"
+        service_fee_str = f"${service_fee:,.0f}" if service_fee else "$0"
+        total_str = f"${total:,.0f}" if total else "$0"
+
+        # Build text email
+        text_body = f"""Hola!
+
+Tu compra en WaRo Tickets ha sido confirmada.
+
+RESUMEN DE TU COMPRA
+--------------------
+Referencia: {reference}
+Evento: {event_name}
+Fecha: {event_date_str}
+{f"Lugar: {event_location}" if event_location else ""}
+
+BOLETAS ({total_tickets} en total)
+--------------------
+{tickets_list}
+DETALLE DEL PAGO
+--------------------
+Subtotal: {subtotal_str} COP
+Cargo por servicio: {service_fee_str} COP
+TOTAL PAGADO: {total_str} COP
+{f"Metodo de pago: {payment_method}" if payment_method else ""}
+
+IMPORTANTE
+--------------------
+- Guarda este correo como comprobante de tu compra
+- El dia del evento presenta el codigo QR de cada boleta
+- Puedes ver tus boletas en: https://warotickets.com/mis-eventos
+
+Gracias por tu compra!
+
+----
+Saifer 101 (Anderson Arevalo)
+Fundador WaRo Tickets
+Bogota, D.C, Colombia
+Tel: 3142047013
+Correo: anderson.arevalo@warotickets.com
+Tecnologia colombiana para el mundo.
+"""
+
+        # Send email (text only to avoid spam filters)
+        client = get_ses_client()
+
+        response = client.send_email(
+            Source=f"Saifer 101 de WaRo Tickets <{settings.aws_ses_from_email}>",
+            Destination={'ToAddresses': [to_email]},
+            Message={
+                'Subject': {'Data': f"Compra confirmada - {event_name}", 'Charset': 'UTF-8'},
+                'Body': {
+                    'Text': {'Data': text_body, 'Charset': 'UTF-8'}
+                }
+            }
+        )
+
+        logger.info(f"Purchase confirmation sent to {to_email}: {response['MessageId']}")
+        return True
+
+    except ClientError as e:
+        logger.error(f"Failed to send purchase confirmation to {to_email}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error sending purchase confirmation: {e}")
+        return False
