@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from typing import List, Optional
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser, get_authenticated_buyer, AuthenticatedBuyer
 from app.models.reservation import (
@@ -6,6 +7,65 @@ from app.models.reservation import (
     CreateReservationResponse, ReservationTimeout, MyTicket
 )
 from app.services import reservations_service
+
+
+class InvoiceTicketDetail(BaseModel):
+    area_name: str
+    unit_price: float
+    base_price: float = 0
+    service_fee: float
+    quantity: int
+    subtotal: float
+    service_total: float
+    pricing_label: str = ""
+    has_discount: bool = False
+    discount_type: Optional[str] = None
+    discount_name: Optional[str] = None
+    discount_detail: Optional[str] = None
+
+class MyInvoice(BaseModel):
+    payment_id: int
+    reference: str
+    amount: float
+    currency: str
+    payment_status: str
+    payment_method_type: Optional[str] = None
+    payment_date: Optional[str] = None
+    finalized_at: Optional[str] = None
+    gateway_name: Optional[str] = None
+    event_name: str
+    event_slug: str
+    event_date: Optional[str] = None
+    reservation_id: str
+    ticket_count: int
+    tickets: List[InvoiceTicketDetail]
+
+
+class InvoiceUnitDetail(BaseModel):
+    reservation_unit_id: int
+    area_name: str
+    display_name: str
+    status: str
+    qr_code: Optional[str] = None
+    unit_price: float = 0
+    base_price: float = 0
+    service_fee: float = 0
+    pricing_label: str = ""
+    has_discount: bool = False
+    discount_type: Optional[str] = None
+    discount_name: Optional[str] = None
+
+
+class MyInvoiceDetail(MyInvoice):
+    customer_email: Optional[str] = None
+    status_message: Optional[str] = None
+    transaction_id: Optional[str] = None
+    card_brand: Optional[str] = None
+    card_last_four: Optional[str] = None
+    card_name: Optional[str] = None
+    installments: Optional[int] = None
+    reservation_date: Optional[str] = None
+    units: List[InvoiceUnitDetail] = []
 
 router = APIRouter()
 
@@ -39,6 +99,33 @@ async def get_my_tickets(
     """
     tickets = await reservations_service.get_my_tickets(buyer.user_id)
     return tickets
+
+
+@router.get("/my-invoices", response_model=List[MyInvoice])
+async def get_my_invoices(
+    buyer: AuthenticatedBuyer = Depends(get_authenticated_buyer)
+):
+    """
+    Get all payment invoices for the current user.
+    Does NOT require tenant - any authenticated user can see their invoices.
+    """
+    invoices = await reservations_service.get_my_invoices(buyer.user_id)
+    return invoices
+
+
+@router.get("/my-invoices/{payment_id}", response_model=MyInvoiceDetail)
+async def get_my_invoice_detail(
+    payment_id: int,
+    buyer: AuthenticatedBuyer = Depends(get_authenticated_buyer)
+):
+    """
+    Get full detail of a single payment invoice.
+    Does NOT require tenant - any authenticated user can see their invoices.
+    """
+    invoice = await reservations_service.get_my_invoice_detail(buyer.user_id, payment_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return invoice
 
 
 @router.get("/{reservation_id}", response_model=Reservation)

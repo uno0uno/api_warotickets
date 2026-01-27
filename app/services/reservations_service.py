@@ -165,7 +165,7 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
 
         # Verify units are available and belong to same event
         units_info = await conn.fetch("""
-            SELECT u.id, u.status, u.area_id, a.cluster_id, a.price, c.start_date, c.end_date
+            SELECT u.id, u.status, u.area_id, a.cluster_id, a.price, a.service as area_service, c.start_date, c.end_date
             FROM units u
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
@@ -196,14 +196,21 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
         event_start = units_info[0]['start_date']
         event_end = units_info[0]['end_date']
 
-        # Calculate pricing
+        # Calculate pricing and store per-unit info
         total = Decimal("0")
+        pricing_by_unit = {}
+        sale_stages_by_area = {}
         for unit in units_info:
             price_info = await pricing_service.calculate_area_price(
                 unit['area_id'],
                 quantity=1
             )
             total += price_info['final_price']
+            pricing_by_unit[unit['id']] = price_info
+            # Cache sale stage per area
+            area_id = unit['area_id']
+            if area_id not in sale_stages_by_area:
+                sale_stages_by_area[area_id] = await pricing_service.get_active_sale_stage(area_id)
 
         # Create reservation
         reservation_row = await conn.fetchrow("""
@@ -224,28 +231,59 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
             changed_by=user_id, reason='Reservation created'
         )
 
-        # Get active sale stage for discount tracking
-        sale_stage = await pricing_service.get_active_sale_stage(units_info[0]['area_id'])
-        sale_stage_id = sale_stage['id'] if sale_stage else None
-
-        # Get promotion ID if code provided
+        # Get promotion ID and data if code provided
         promotion_id = None
+        promo_data = None
         if data.promotion_code:
             promo = await conn.fetchrow(
                 "SELECT id FROM promotions WHERE promotion_code = $1",
                 data.promotion_code.upper().strip()
             )
-            promotion_id = str(promo['id']) if promo else None
+            if promo:
+                promotion_id = str(promo['id'])
+                promo_data = await conn.fetchrow(
+                    "SELECT promotion_name, promotion_code, pricing_type, pricing_value FROM promotions WHERE id = $1",
+                    promo['id']
+                )
 
         # Create reservation units and reserve the units
         for unit in units_info:
+            price_info = pricing_by_unit[unit['id']]
+            active_stage = sale_stages_by_area.get(unit['area_id'])
+            unit_sale_stage_id = active_stage['id'] if active_stage else None
+
+            # Build pricing snapshot
+            # a.service stores the per-unit service fee in COP (monetary amount)
+            snapshot = {
+                "base_price": float(price_info['base_price']),
+                "unit_price": float(price_info['unit_price']),
+                "service_fee": float(unit['area_service'] or 0),
+                "bundle_size": price_info['bundle_size'],
+            }
+
+            if active_stage and not promotion_id:
+                snapshot["discount_type"] = "sale_stage"
+                snapshot["discount_name"] = active_stage['stage_name']
+                snapshot["adjustment_type"] = active_stage['price_adjustment_type']
+                snapshot["adjustment_value"] = float(active_stage['price_adjustment_value'])
+            elif promotion_id and promo_data:
+                snapshot["discount_type"] = "promotion"
+                snapshot["discount_name"] = promo_data['promotion_name']
+                snapshot["promotion_code"] = promo_data['promotion_code']
+                snapshot["adjustment_type"] = promo_data['pricing_type']
+                snapshot["adjustment_value"] = float(promo_data['pricing_value'])
+
+            unit_price_paid = float(price_info['unit_price'])
+
             ru_row = await conn.fetchrow("""
                 INSERT INTO reservation_units (
                     reservation_id, unit_id, status, original_user_id,
-                    applied_area_sale_stage_id, applied_promotion_id, updated_at
-                ) VALUES ($1, $2, 'reserved', $3, $4, $5, NOW())
+                    applied_area_sale_stage_id, applied_promotion_id,
+                    unit_price_paid, pricing_snapshot, updated_at
+                ) VALUES ($1, $2, 'reserved', $3, $4, $5, $6, $7, NOW())
                 RETURNING id
-            """, reservation_id, unit['id'], user_id, sale_stage_id, promotion_id)
+            """, reservation_id, unit['id'], user_id, unit_sale_stage_id, promotion_id,
+                 unit_price_paid, json.dumps(snapshot))
 
             # Track unit reservation
             await _track_reservation_unit_status(
@@ -648,3 +686,347 @@ async def _track_reservation_unit_status(
         json.dumps(metadata) if metadata else None)
 
     logger.debug(f"Tracked unit {reservation_unit_id}: {old_status} -> {new_status}")
+
+
+async def get_my_invoices(user_id: str) -> list:
+    """Get all payment invoices for a buyer, with ticket breakdown per area."""
+    async with get_db_connection(use_transaction=False) as conn:
+        # Get all payments for the user
+        payments = await conn.fetch("""
+            SELECT DISTINCT
+                p.id as payment_id,
+                p.reference,
+                p.amount,
+                p.currency,
+                p.status as payment_status,
+                p.payment_method_type,
+                p.payment_date,
+                p.finalized_at,
+                p.gateway_name,
+                c.cluster_name as event_name,
+                c.slug_cluster as event_slug,
+                c.start_date as event_date,
+                r.id as reservation_id
+            FROM payments p
+            JOIN reservations r ON p.reservation_id = r.id
+            JOIN reservation_units ru ON r.id = ru.reservation_id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            WHERE r.user_id = $1
+            ORDER BY p.payment_date DESC
+        """, uuid.UUID(user_id))
+
+        invoices = []
+        for pay in payments:
+            # Get ticket breakdown by area for this reservation
+            ticket_details = await conn.fetch("""
+                SELECT
+                    a.area_name,
+                    a.price as base_price,
+                    a.service as area_service_fee,
+                    COUNT(ru.id) as quantity,
+                    ru.unit_price_paid,
+                    ru.pricing_snapshot
+                FROM reservation_units ru
+                JOIN units u ON ru.unit_id = u.id
+                JOIN areas a ON u.area_id = a.id
+                WHERE ru.reservation_id = $1
+                GROUP BY a.area_name, a.price, a.service, ru.unit_price_paid, ru.pricing_snapshot
+            """, pay['reservation_id'])
+
+            tickets = []
+            ticket_count = 0
+            for td in ticket_details:
+                qty = td['quantity']
+                ticket_count += qty
+
+                snapshot = td['pricing_snapshot'] or {}
+                if isinstance(snapshot, str):
+                    snapshot = json.loads(snapshot)
+
+                base_price = float(td['base_price'] or 0)
+
+                # Use snapshot price if available, fallback to base price
+                if td['unit_price_paid'] is not None:
+                    unit_price = float(td['unit_price_paid'])
+                else:
+                    unit_price = base_price
+
+                # Service fee from snapshot, fallback to percentage-based calculation
+                if snapshot.get('service_fee') is not None:
+                    service_fee = float(snapshot['service_fee'])
+                else:
+                    service_fee = float(td['area_service_fee'] or 0)
+
+                # Discount info
+                discount_type = snapshot.get('discount_type')
+                discount_name = snapshot.get('discount_name')
+                has_discount = discount_type is not None
+
+                # Build pricing label
+                if discount_name:
+                    pricing_label = f"{td['area_name']} ({discount_name})"
+                else:
+                    pricing_label = td['area_name']
+
+                # Build discount detail string
+                discount_detail = None
+                if has_discount:
+                    adj_type = snapshot.get('adjustment_type')
+                    adj_value = snapshot.get('adjustment_value')
+                    if discount_type == 'promotion' and snapshot.get('promotion_code'):
+                        discount_detail = f"Promo: {snapshot['promotion_code']}"
+                    elif adj_type == 'percentage' and adj_value is not None:
+                        discount_detail = f"{adj_value:+g}%"
+                    elif adj_type in ('fixed', 'fixed_discount') and adj_value is not None:
+                        discount_detail = f"${adj_value:+,.0f}"
+                    elif adj_type in ('fixed_price',) and adj_value is not None:
+                        discount_detail = f"Precio fijo: ${adj_value:,.0f}"
+
+                tickets.append({
+                    "area_name": td['area_name'],
+                    "unit_price": unit_price,
+                    "base_price": base_price,
+                    "service_fee": service_fee,
+                    "quantity": qty,
+                    "subtotal": unit_price * qty,
+                    "service_total": service_fee * qty,
+                    "pricing_label": pricing_label,
+                    "has_discount": has_discount,
+                    "discount_type": discount_type,
+                    "discount_name": discount_name,
+                    "discount_detail": discount_detail,
+                })
+
+            invoices.append({
+                "payment_id": pay['payment_id'],
+                "reference": pay['reference'] or '',
+                "amount": float(pay['amount'] or 0),
+                "currency": pay['currency'] or 'COP',
+                "payment_status": pay['payment_status'] or 'pending',
+                "payment_method_type": pay['payment_method_type'],
+                "payment_date": pay['payment_date'].isoformat() if pay['payment_date'] else None,
+                "finalized_at": pay['finalized_at'].isoformat() if pay['finalized_at'] else None,
+                "gateway_name": pay['gateway_name'],
+                "event_name": pay['event_name'] or '',
+                "event_slug": pay['event_slug'] or '',
+                "event_date": pay['event_date'].isoformat() if pay['event_date'] else None,
+                "reservation_id": str(pay['reservation_id']),
+                "ticket_count": ticket_count,
+                "tickets": tickets
+            })
+
+        return invoices
+
+
+async def get_my_invoice_detail(user_id: str, payment_id: int) -> dict | None:
+    """Get full detail of a single payment invoice for a buyer."""
+    async with get_db_connection(use_transaction=False) as conn:
+        pay = await conn.fetchrow("""
+            SELECT DISTINCT
+                p.id as payment_id,
+                p.reference,
+                p.amount,
+                p.currency,
+                p.status as payment_status,
+                p.payment_method_type,
+                p.payment_method_data,
+                p.payment_date,
+                p.finalized_at,
+                p.gateway_name,
+                p.customer_email,
+                p.status_message,
+                p.environment,
+                p.payment_gateway_transaction_id,
+                c.cluster_name as event_name,
+                c.slug_cluster as event_slug,
+                c.start_date as event_date,
+                r.id as reservation_id,
+                r.reservation_date
+            FROM payments p
+            JOIN reservations r ON p.reservation_id = r.id
+            JOIN reservation_units ru ON r.id = ru.reservation_id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            WHERE p.id = $1 AND r.user_id = $2
+            LIMIT 1
+        """, payment_id, uuid.UUID(user_id))
+
+        if not pay:
+            return None
+
+        # Get ticket breakdown by area
+        ticket_details = await conn.fetch("""
+            SELECT
+                a.area_name,
+                a.price as base_price,
+                a.service as area_service_fee,
+                COUNT(ru.id) as quantity,
+                ru.unit_price_paid,
+                ru.pricing_snapshot
+            FROM reservation_units ru
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            WHERE ru.reservation_id = $1
+            GROUP BY a.area_name, a.price, a.service, ru.unit_price_paid, ru.pricing_snapshot
+        """, pay['reservation_id'])
+
+        tickets = []
+        ticket_count = 0
+        for td in ticket_details:
+            qty = td['quantity']
+            ticket_count += qty
+
+            snapshot = td['pricing_snapshot'] or {}
+            if isinstance(snapshot, str):
+                snapshot = json.loads(snapshot)
+
+            base_price = float(td['base_price'] or 0)
+
+            if td['unit_price_paid'] is not None:
+                unit_price = float(td['unit_price_paid'])
+            else:
+                unit_price = base_price
+
+            if snapshot.get('service_fee') is not None:
+                service_fee = float(snapshot['service_fee'])
+            else:
+                service_fee = float(td['area_service_fee'] or 0)
+
+            discount_type = snapshot.get('discount_type')
+            discount_name = snapshot.get('discount_name')
+            has_discount = discount_type is not None
+
+            if discount_name:
+                pricing_label = f"{td['area_name']} ({discount_name})"
+            else:
+                pricing_label = td['area_name']
+
+            discount_detail = None
+            if has_discount:
+                adj_type = snapshot.get('adjustment_type')
+                adj_value = snapshot.get('adjustment_value')
+                if discount_type == 'promotion' and snapshot.get('promotion_code'):
+                    discount_detail = f"Promo: {snapshot['promotion_code']}"
+                elif adj_type == 'percentage' and adj_value is not None:
+                    discount_detail = f"{adj_value:+g}%"
+                elif adj_type in ('fixed', 'fixed_discount') and adj_value is not None:
+                    discount_detail = f"${adj_value:+,.0f}"
+                elif adj_type in ('fixed_price',) and adj_value is not None:
+                    discount_detail = f"Precio fijo: ${adj_value:,.0f}"
+
+            tickets.append({
+                "area_name": td['area_name'],
+                "unit_price": unit_price,
+                "base_price": base_price,
+                "service_fee": service_fee,
+                "quantity": qty,
+                "subtotal": unit_price * qty,
+                "service_total": service_fee * qty,
+                "pricing_label": pricing_label,
+                "has_discount": has_discount,
+                "discount_type": discount_type,
+                "discount_name": discount_name,
+                "discount_detail": discount_detail,
+            })
+
+        # Get individual units
+        units = await conn.fetch("""
+            SELECT
+                ru.id as reservation_unit_id,
+                ru.status,
+                ru.qr_code,
+                ru.unit_price_paid,
+                ru.pricing_snapshot,
+                u.nomenclature_letter_area,
+                u.nomenclature_number_area,
+                u.nomenclature_number_unit,
+                a.area_name,
+                a.price as base_price,
+                a.service as area_service_fee
+            FROM reservation_units ru
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            WHERE ru.reservation_id = $1
+            ORDER BY a.area_name, u.nomenclature_number_unit
+        """, pay['reservation_id'])
+
+        unit_list = []
+        for u in units:
+            letter = u['nomenclature_letter_area'] or ''
+            num_area = u['nomenclature_number_area'] or ''
+            num_unit = u['nomenclature_number_unit'] or ''
+            display = f"{letter}{'-' + str(num_area) if num_area else ''}-{num_unit}" if letter else str(num_unit)
+
+            snapshot = u['pricing_snapshot'] or {}
+            if isinstance(snapshot, str):
+                snapshot = json.loads(snapshot)
+
+            base_price = float(u['base_price'] or 0)
+
+            if u['unit_price_paid'] is not None:
+                unit_price = float(u['unit_price_paid'])
+            else:
+                unit_price = base_price
+
+            if snapshot.get('service_fee') is not None:
+                service_fee = float(snapshot['service_fee'])
+            else:
+                service_fee = float(u['area_service_fee'] or 0)
+
+            discount_type = snapshot.get('discount_type')
+            discount_name = snapshot.get('discount_name')
+            has_discount = discount_type is not None
+
+            if discount_name:
+                pricing_label = f"{u['area_name']} ({discount_name})"
+            else:
+                pricing_label = u['area_name']
+
+            unit_list.append({
+                "reservation_unit_id": u['reservation_unit_id'],
+                "area_name": u['area_name'],
+                "display_name": display,
+                "status": u['status'],
+                "qr_code": u['qr_code'],
+                "unit_price": unit_price,
+                "base_price": base_price,
+                "service_fee": service_fee,
+                "pricing_label": pricing_label,
+                "has_discount": has_discount,
+                "discount_type": discount_type,
+                "discount_name": discount_name,
+            })
+
+        # Parse payment method data
+        method_data = pay['payment_method_data'] or {}
+        extra = method_data.get('extra', {}) if isinstance(method_data, dict) else {}
+
+        return {
+            "payment_id": pay['payment_id'],
+            "reference": pay['reference'] or '',
+            "amount": float(pay['amount'] or 0),
+            "currency": pay['currency'] or 'COP',
+            "payment_status": pay['payment_status'] or 'pending',
+            "payment_method_type": pay['payment_method_type'],
+            "payment_date": pay['payment_date'].isoformat() if pay['payment_date'] else None,
+            "finalized_at": pay['finalized_at'].isoformat() if pay['finalized_at'] else None,
+            "gateway_name": pay['gateway_name'],
+            "customer_email": pay['customer_email'],
+            "status_message": pay['status_message'],
+            "transaction_id": pay['payment_gateway_transaction_id'],
+            "card_brand": extra.get('brand'),
+            "card_last_four": extra.get('last_four'),
+            "card_name": extra.get('name'),
+            "installments": method_data.get('installments') if isinstance(method_data, dict) else None,
+            "event_name": pay['event_name'] or '',
+            "event_slug": pay['event_slug'] or '',
+            "event_date": pay['event_date'].isoformat() if pay['event_date'] else None,
+            "reservation_id": str(pay['reservation_id']),
+            "reservation_date": pay['reservation_date'].isoformat() if pay['reservation_date'] else None,
+            "ticket_count": ticket_count,
+            "tickets": tickets,
+            "units": unit_list
+        }
