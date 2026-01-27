@@ -308,7 +308,8 @@ async def send_simple_purchase_confirmation(
     service_fee: Decimal,
     total: Decimal,
     reference: str,
-    payment_method: Optional[str] = None
+    payment_method: Optional[str] = None,
+    access_url: Optional[str] = None
 ) -> bool:
     """
     Send simple text-based purchase confirmation email.
@@ -371,11 +372,14 @@ Cargo por servicio: {service_fee_str} COP
 TOTAL PAGADO: {total_str} COP
 {f"Metodo de pago: {payment_method}" if payment_method else ""}
 
+ACCEDE A TUS BOLETAS
+--------------------
+{f"Para ver tus boletas y codigos QR, haz clic aqui:\n{access_url}" if access_url else f"Puedes ver tus boletas en: {settings.frontend_url}/mis-boletas"}
+
 IMPORTANTE
 --------------------
 - Guarda este correo como comprobante de tu compra
 - El dia del evento presenta el codigo QR de cada boleta
-- Puedes ver tus boletas en: https://warotickets.com/mis-eventos
 
 Gracias por tu compra!
 

@@ -8,6 +8,7 @@ Supports multiple payment gateways:
 """
 import json
 import logging
+import secrets
 from typing import Optional
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -625,6 +626,33 @@ async def send_purchase_confirmation_email(
             subtotal += ticket_subtotal
             total_service_fee += ticket_fee
 
+        # Generate access token for buyer auto-login
+        access_url = None
+        try:
+            user_id = await conn.fetchval(
+                "SELECT user_id FROM reservations WHERE id = $1",
+                reservation_id
+            )
+            if user_id:
+                access_token = secrets.token_urlsafe(32)
+
+                # Token expires 24h after event, or 30 days if no event date
+                event_date = event_info['start_date']
+                if event_date:
+                    token_expires = event_date + timedelta(hours=24)
+                else:
+                    token_expires = datetime.now() + timedelta(days=30)
+
+                await conn.execute("""
+                    INSERT INTO magic_tokens (id, user_id, token, verification_code, expires_at, used, created_at)
+                    VALUES (gen_random_uuid(), $1, $2::text, '000000'::varchar, $3, false, NOW())
+                """, user_id, access_token, token_expires)
+
+                access_url = f"{settings.frontend_url}/auth/verify?token={access_token}&redirect=/mis-boletas"
+                logger.info(f"Generated buyer access token for {customer_email}")
+        except Exception as e:
+            logger.warning(f"Failed to generate buyer access token: {e}")
+
         # Send email
         success = await email_service.send_simple_purchase_confirmation(
             to_email=customer_email,
@@ -636,7 +664,8 @@ async def send_purchase_confirmation_email(
             service_fee=total_service_fee,
             total=amount,
             reference=reference,
-            payment_method="Tarjeta de credito/debito"
+            payment_method="Tarjeta de credito/debito",
+            access_url=access_url
         )
 
         if success:

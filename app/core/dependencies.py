@@ -120,3 +120,32 @@ class AuthenticatedUser:
 def get_authenticated_user(request: Request) -> AuthenticatedUser:
     """Dependency to get authenticated user with tenant context"""
     return AuthenticatedUser(request)
+
+
+class AuthenticatedBuyer:
+    """
+    Dependency class that provides user context WITHOUT requiring tenant.
+    Use this for buyer endpoints (e.g. my-tickets) where tenant is not needed.
+    """
+    def __init__(self, request: Request):
+        self.session = get_session_context(request)
+
+        if not self.session.is_valid:
+            raise AuthenticationError("Authentication required")
+
+    @property
+    def user_id(self) -> str:
+        return str(self.session.user_id)
+
+    @property
+    def email(self) -> str:
+        return self.session.email
+
+    @property
+    def name(self) -> str:
+        return self.session.name
+
+
+def get_authenticated_buyer(request: Request) -> AuthenticatedBuyer:
+    """Dependency to get authenticated user WITHOUT tenant context (for buyers)"""
+    return AuthenticatedBuyer(request)

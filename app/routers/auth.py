@@ -72,8 +72,19 @@ async def send_magic_link(data: MagicLinkRequest, request: Request):
         """, user['id'])
 
         if not is_member:
-            logger.warning(f"User {data.email} is not a member of any tenant")
-            raise HTTPException(status_code=400, detail="No tienes acceso a esta plataforma")
+            # Not a tenant member - check if they have purchased tickets (buyer)
+            has_tickets = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM reservations r
+                    WHERE r.user_id = $1 AND r.status = 'confirmed'
+                )
+            """, user['id'])
+
+            if not has_tickets:
+                logger.warning(f"User {data.email} has no tenant membership and no tickets")
+                raise HTTPException(status_code=400, detail="No se encontro una cuenta con este correo")
+
+            logger.info(f"Buyer login: {data.email} (no tenant, has tickets)")
 
         # Generate verification code (6 digits) and token
         code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
@@ -155,6 +166,14 @@ async def verify_code(data: VerifyCodeRequest, request: Request, response: Respo
             token_row['id']
         )
 
+        # Resolve tenant: use context if available, otherwise look up user's membership
+        if not tenant_id:
+            member = await conn.fetchrow("""
+                SELECT tm.tenant_id FROM tenant_members tm
+                WHERE tm.user_id = $1 LIMIT 1
+            """, user['id'])
+            tenant_id = member['tenant_id'] if member else None
+
         # Create session - use UUID as session ID
         session_id = str(uuid.uuid4())
         expires_at = datetime.now() + timedelta(days=30)
@@ -217,6 +236,14 @@ async def verify_magic_link(data: VerifyTokenRequest, request: Request, response
             "UPDATE magic_tokens SET used = true, used_at = NOW() WHERE id = $1",
             token_row['id']
         )
+
+        # Resolve tenant: use context if available, otherwise look up user's membership
+        if not tenant_id:
+            member = await conn.fetchrow("""
+                SELECT tm.tenant_id FROM tenant_members tm
+                WHERE tm.user_id = $1 LIMIT 1
+            """, token_row['user_id'])
+            tenant_id = member['tenant_id'] if member else None
 
         # Create session - use UUID as session ID
         session_id = str(uuid.uuid4())

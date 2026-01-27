@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
-from app.core.dependencies import get_authenticated_user, AuthenticatedUser
+from app.core.dependencies import get_authenticated_user, AuthenticatedUser, get_authenticated_buyer, AuthenticatedBuyer
 from app.models.reservation import (
     Reservation, ReservationCreate, ReservationSummary,
     CreateReservationResponse, ReservationTimeout, MyTicket
@@ -31,12 +31,13 @@ async def list_reservations(
 
 @router.get("/my-tickets", response_model=List[MyTicket])
 async def get_my_tickets(
-    user: AuthenticatedUser = Depends(get_authenticated_user)
+    buyer: AuthenticatedBuyer = Depends(get_authenticated_buyer)
 ):
     """
-    Get all confirmed tickets for the current user.
+    Get all confirmed tickets for the current user (buyer or organizer).
+    Does NOT require tenant - any authenticated user can see their tickets.
     """
-    tickets = await reservations_service.get_my_tickets(user.user_id)
+    tickets = await reservations_service.get_my_tickets(buyer.user_id)
     return tickets
 
 
