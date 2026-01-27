@@ -231,20 +231,23 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
             changed_by=user_id, reason='Reservation created'
         )
 
-        # Get promotion ID and data if code provided
-        promotion_id = None
+        # Get promotion ID and data if code or ID provided
+        promotion_id = data.promotion_id
         promo_data = None
-        if data.promotion_code:
+        
+        if promotion_id:
+            promo_data = await conn.fetchrow(
+                "SELECT promotion_name, promotion_code, pricing_type, pricing_value FROM promotions WHERE id = $1",
+                uuid.UUID(promotion_id)
+            )
+        elif data.promotion_code:
             promo = await conn.fetchrow(
-                "SELECT id FROM promotions WHERE promotion_code = $1",
+                "SELECT id, promotion_name, promotion_code, pricing_type, pricing_value FROM promotions WHERE promotion_code = $1",
                 data.promotion_code.upper().strip()
             )
             if promo:
                 promotion_id = str(promo['id'])
-                promo_data = await conn.fetchrow(
-                    "SELECT promotion_name, promotion_code, pricing_type, pricing_value FROM promotions WHERE id = $1",
-                    promo['id']
-                )
+                promo_data = promo
 
         # Create reservation units and reserve the units
         for unit in units_info:

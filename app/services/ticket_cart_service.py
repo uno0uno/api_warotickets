@@ -796,14 +796,16 @@ async def checkout(
             if item['promotion_id']:
                 promo_unit_ids.extend(item_unit_ids)
 
-        # Extract promotion code if any items have one
+        # Extract promotion code and ID if any items have one
         # Note: Currently assumes one promotion per cart or takes the first one found
         promotion_code = None
+        promotion_id = None
         
         # Find first item with promotion_id
         promo_item = next((item for item in items if item['promotion_id']), None)
         
         if promo_item:
+            promotion_id = str(promo_item['promotion_id'])
             # Get promotion code
             promo = await conn.fetchrow(
                 "SELECT promotion_code FROM promotions WHERE id = $1",
@@ -822,6 +824,7 @@ async def checkout(
         unit_ids=unit_ids,
         email=customer_email,
         promotion_code=promotion_code,
+        promotion_id=promotion_id,
         promo_unit_ids=promo_unit_ids
     )
 
