@@ -67,88 +67,62 @@ async def send_transfer_notification(
     message: Optional[str] = None,
     expires_at: Optional[datetime] = None
 ) -> bool:
-    """Send transfer notification email to recipient"""
-    accept_url = f"{settings.frontend_url}/transfers/accept?token={transfer_token}"
+    """Send transfer notification email to recipient (plain text, same style as purchase confirmation)"""
+    try:
+        accept_url = f"{settings.frontend_url}/transfers/accept?token={transfer_token}"
 
-    event_date_str = event_date.strftime("%d de %B, %Y") if event_date else "Por confirmar"
-    expires_str = expires_at.strftime("%d/%m/%Y a las %H:%M") if expires_at else "48 horas"
+        event_date_str = event_date.strftime('%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
+        expires_str = expires_at.strftime('%d/%m/%Y a las %H:%M') if expires_at else '48 horas'
 
-    html_body = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-            .ticket-info {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }}
-            .btn {{ display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
-            .message {{ background: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; }}
-            .footer {{ text-align: center; color: #666; font-size: 12px; margin-top: 30px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>🎫 Te han transferido un boleto</h1>
-            </div>
-            <div class="content">
-                <p>Hola,</p>
-                <p><strong>{sender_name}</strong> quiere transferirte un boleto para:</p>
+        text_body = f"""Hola!
 
-                <div class="ticket-info">
-                    <h3 style="margin-top: 0;">📍 {event_name}</h3>
-                    <p><strong>Fecha:</strong> {event_date_str}</p>
-                    <p><strong>Zona:</strong> {area_name}</p>
-                    <p><strong>Ubicación:</strong> {unit_display_name}</p>
-                </div>
+{sender_name} quiere transferirte un boleto en WaRo Tickets.
 
-                {"<div class='message'><strong>Mensaje del remitente:</strong><br>" + message + "</div>" if message else ""}
+DETALLE DEL BOLETO
+--------------------
+Evento: {event_name}
+Fecha: {event_date_str}
+Zona: {area_name}
+Ubicacion: {unit_display_name}
+{f"Mensaje: {message}" if message else ""}
 
-                <p style="text-align: center;">
-                    <a href="{accept_url}" class="btn">Aceptar Transferencia</a>
-                </p>
+ACEPTAR TRANSFERENCIA
+--------------------
+Para aceptar este boleto, haz clic aqui:
+{accept_url}
 
-                <p style="color: #dc3545;"><strong>⏰ Esta transferencia expira el {expires_str}</strong></p>
+IMPORTANTE
+--------------------
+- Esta transferencia expira el {expires_str}
+- Si no deseas aceptar, simplemente ignora este correo
+- Al aceptar, se generara un nuevo codigo QR a tu nombre
 
-                <p>Si no deseas aceptar este boleto, simplemente ignora este correo.</p>
+----
+{settings.email_signature}
+"""
 
-                <div class="footer">
-                    <p>Este correo fue enviado por WaRo Tickets</p>
-                    <p>Si tienes problemas con el botón, copia y pega este enlace: {accept_url}</p>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+        client = get_ses_client()
 
-    text_body = f"""
-    Te han transferido un boleto
+        response = client.send_email(
+            Source=f"{settings.aws_ses_from_name} <{settings.aws_ses_from_email}>",
+            Destination={'ToAddresses': [recipient_email]},
+            Message={
+                'Subject': {'Data': f"Te transfirieron un boleto para {event_name}", 'Charset': 'UTF-8'},
+                'Body': {
+                    'Text': {'Data': text_body, 'Charset': 'UTF-8'}
+                }
+            }
+        )
 
-    {sender_name} quiere transferirte un boleto para:
+        logger.info(f"Transfer notification sent to {recipient_email}: {response['MessageId']}")
+        return True
 
-    Evento: {event_name}
-    Fecha: {event_date_str}
-    Zona: {area_name}
-    Ubicación: {unit_display_name}
-
-    {"Mensaje: " + message if message else ""}
-
-    Para aceptar la transferencia, visita:
-    {accept_url}
-
-    Esta transferencia expira el {expires_str}
-    """
-
-    return await send_email(
-        to_email=recipient_email,
-        subject=f"🎫 {sender_name} te transfirió un boleto para {event_name}",
-        html_body=html_body,
-        text_body=text_body
-    )
+    except ClientError as e:
+        logger.error(f"Failed to send transfer notification to {recipient_email}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error sending transfer notification: {e}")
+        return False
 
 
 async def send_purchase_confirmation(

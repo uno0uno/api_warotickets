@@ -9,11 +9,15 @@ from app.models.transfer import (
 )
 from app.utils.qr_generator import generate_ticket_qr, generate_data_url
 from app.core.exceptions import ValidationError
+from app.services.email_service import send_transfer_notification
 
 logger = logging.getLogger(__name__)
 
 # Transfer expires after 48 hours
 TRANSFER_EXPIRY_HOURS = 48
+
+# Rate limiting for resend: {reservation_unit_id: [timestamp, timestamp, ...]}
+_resend_history: dict[int, list[datetime]] = {}
 
 
 async def initiate_transfer(
@@ -92,6 +96,19 @@ async def initiate_transfer(
 
         logger.info(f"Transfer initiated: Ticket {data.reservation_unit_id} from {user_id} to {data.recipient_email}")
 
+        # Send notification email to recipient
+        await send_transfer_notification(
+            recipient_email=data.recipient_email,
+            sender_name=ticket['owner_name'] or 'Un usuario',
+            event_name=ticket['cluster_name'],
+            event_date=ticket['start_date'],
+            area_name=ticket['area_name'],
+            unit_display_name=display_name,
+            transfer_token=transfer_token,
+            message=data.message,
+            expires_at=expires_at
+        )
+
         return Transfer(
             id=transfer_row['id'],
             reservation_unit_id=data.reservation_unit_id,
@@ -111,6 +128,80 @@ async def initiate_transfer(
             area_name=ticket['area_name'],
             unit_display_name=display_name
         )
+
+
+async def resend_transfer(user_id: str, reservation_unit_id: int) -> bool:
+    """Resend the notification email for a pending transfer"""
+    now = datetime.now()
+
+    # Rate limit: clean old entries and check
+    history = _resend_history.get(reservation_unit_id, [])
+    history = [t for t in history if now - t < timedelta(hours=24)]
+    _resend_history[reservation_unit_id] = history
+
+    # If 3+ resends in 24h, block completely
+    if len(history) >= 3:
+        raise ValidationError("Demasiados reenvios. Intenta de nuevo en 24 horas")
+
+    # If any resend in the last hour, block
+    recent = [t for t in history if now - t < timedelta(hours=1)]
+    if recent:
+        raise ValidationError("Ya se reenvio recientemente. Intenta de nuevo en 1 hora")
+
+    async with get_db_connection(use_transaction=False) as conn:
+        # Find the pending transfer
+        transfer = await conn.fetchrow("""
+            SELECT utl.id, utl.transfer_reason, utl.from_user_id,
+                   c.cluster_name, c.start_date, a.area_name,
+                   u.nomenclature_letter_area, u.nomenclature_number_unit,
+                   p.name as owner_name
+            FROM unit_transfer_log utl
+            JOIN reservation_units ru ON utl.reservation_unit_id = ru.id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            JOIN profile p ON utl.from_user_id = p.id
+            WHERE utl.reservation_unit_id = $1
+              AND utl.transfer_reason LIKE 'PENDING|%%'
+        """, reservation_unit_id)
+
+        if not transfer:
+            raise ValidationError("No pending transfer found for this ticket")
+
+        if str(transfer['from_user_id']) != user_id:
+            raise ValidationError("You can only resend your own transfers")
+
+        # Parse transfer_reason: PENDING|token|email|expires|message
+        parts = transfer['transfer_reason'].split('|')
+        if len(parts) < 4:
+            raise ValidationError("Invalid transfer data")
+
+        transfer_token = parts[1]
+        recipient_email = parts[2]
+        expires_at_str = parts[3]
+        message = parts[4] if len(parts) > 4 else None
+
+        expires_at = datetime.fromisoformat(expires_at_str)
+
+        display_name = f"{transfer['nomenclature_letter_area'] or ''}-{transfer['nomenclature_number_unit'] or reservation_unit_id}".strip('-')
+
+        await send_transfer_notification(
+            recipient_email=recipient_email,
+            sender_name=transfer['owner_name'] or 'Un usuario',
+            event_name=transfer['cluster_name'],
+            event_date=transfer['start_date'],
+            area_name=transfer['area_name'],
+            unit_display_name=display_name,
+            transfer_token=transfer_token,
+            message=message,
+            expires_at=expires_at
+        )
+
+        # Record successful resend for rate limiting
+        _resend_history[reservation_unit_id].append(now)
+
+        logger.info(f"Transfer resent: Ticket {reservation_unit_id} to {recipient_email}")
+        return True
 
 
 async def accept_transfer(

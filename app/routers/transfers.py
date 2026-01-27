@@ -44,6 +44,19 @@ async def accept_transfer(
     return result
 
 
+@router.post("/resend/{reservation_unit_id}", status_code=200)
+async def resend_transfer(
+    reservation_unit_id: int,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Resend the transfer notification email to the recipient.
+    Uses the same email and token from the existing pending transfer.
+    """
+    await transfer_service.resend_transfer(user.user_id, reservation_unit_id)
+    return {"message": "Transfer notification resent"}
+
+
 @router.post("/cancel/{reservation_unit_id}", status_code=204)
 async def cancel_transfer(
     reservation_unit_id: int,
