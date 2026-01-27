@@ -36,6 +36,7 @@ class ReservationCreate(BaseModel):
     cluster_id: int = Field(..., description="ID del evento")
     unit_ids: List[int] = Field(..., min_length=1, max_length=20, description="IDs de unidades a reservar")
     promotion_code: Optional[str] = Field(None, description="Codigo promocional")
+    promo_unit_ids: Optional[List[int]] = Field(default_factory=list, description="IDs de unidades que aplican a la promocion")
     email: EmailStr = Field(..., description="Correo electronico del cliente")
 
 

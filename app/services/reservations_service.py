@@ -261,12 +261,19 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
                 "bundle_size": price_info['bundle_size'],
             }
 
-            if active_stage and not promotion_id:
+            # Check if unit is part of the promotion (if one is applied)
+            is_promo_unit = False
+            if promotion_id and promo_data:
+                # Check if this specific unit ID was marked for promotion
+                if data.promo_unit_ids and unit['id'] in data.promo_unit_ids:
+                    is_promo_unit = True
+
+            if active_stage and not is_promo_unit:
                 snapshot["discount_type"] = "sale_stage"
                 snapshot["discount_name"] = active_stage['stage_name']
                 snapshot["adjustment_type"] = active_stage['price_adjustment_type']
                 snapshot["adjustment_value"] = float(active_stage['price_adjustment_value'])
-            elif promotion_id and promo_data:
+            elif is_promo_unit and promo_data:
                 snapshot["discount_type"] = "promotion"
                 snapshot["discount_name"] = promo_data['promotion_name']
                 snapshot["promotion_code"] = promo_data['promotion_code']

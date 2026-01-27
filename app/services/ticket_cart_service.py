@@ -761,8 +761,10 @@ async def checkout(
         if not items:
             raise ValidationError("El carrito esta vacio")
 
-        # Group items by area and calculate total tickets needed per area
-        area_tickets: dict[int, int] = {}
+        # Select units for each item in the cart
+        unit_ids = []
+        promo_unit_ids = []
+        
         for item in items:
             area_id = item['area_id']
             # For promotion items, quantity IS tickets_count (no bundle)
@@ -774,24 +776,25 @@ async def checkout(
                 bundle_size = stage.get('bundle_size', 1) if stage else 1
                 tickets_count = item['quantity'] * bundle_size
 
-            area_tickets[area_id] = area_tickets.get(area_id, 0) + tickets_count
-
-        # Select units for each area (no duplicates)
-        unit_ids = []
-        for area_id, tickets_count in area_tickets.items():
+            # Select units for this item, excluding already selected ones
             available_units = await conn.fetch("""
                 SELECT id FROM units
                 WHERE area_id = $1 AND status = 'available'
+                  AND id != ALL($2)
                 ORDER BY nomenclature_number_unit
-                LIMIT $2
-            """, area_id, tickets_count)
+                LIMIT $3
+            """, area_id, unit_ids, tickets_count)
 
             if len(available_units) < tickets_count:
                 raise ValidationError(
                     f"No hay suficientes boletas disponibles para el area seleccionada"
                 )
 
-            unit_ids.extend([u['id'] for u in available_units])
+            item_unit_ids = [u['id'] for u in available_units]
+            unit_ids.extend(item_unit_ids)
+            
+            if item['promotion_id']:
+                promo_unit_ids.extend(item_unit_ids)
 
         # Extract promotion code if any items have one
         # Note: Currently assumes one promotion per cart or takes the first one found
@@ -818,7 +821,8 @@ async def checkout(
         cluster_id=cluster_id,
         unit_ids=unit_ids,
         email=customer_email,
-        promotion_code=promotion_code
+        promotion_code=promotion_code,
+        promo_unit_ids=promo_unit_ids
     )
 
     reservation_response = await reservations_service.create_reservation(
