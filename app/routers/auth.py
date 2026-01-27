@@ -76,7 +76,7 @@ async def send_magic_link(data: MagicLinkRequest, request: Request):
             has_tickets = await conn.fetchval("""
                 SELECT EXISTS(
                     SELECT 1 FROM reservations r
-                    WHERE r.user_id = $1 AND r.status = 'confirmed'
+                    WHERE r.user_id = $1 AND r.status IN ('confirmed', 'active')
                 )
             """, user['id'])
 

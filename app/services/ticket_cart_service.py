@@ -793,6 +793,22 @@ async def checkout(
 
             unit_ids.extend([u['id'] for u in available_units])
 
+        # Extract promotion code if any items have one
+        # Note: Currently assumes one promotion per cart or takes the first one found
+        promotion_code = None
+        
+        # Find first item with promotion_id
+        promo_item = next((item for item in items if item['promotion_id']), None)
+        
+        if promo_item:
+            # Get promotion code
+            promo = await conn.fetchrow(
+                "SELECT promotion_code FROM promotions WHERE id = $1",
+                promo_item['promotion_id']
+            )
+            if promo:
+                promotion_code = promo['promotion_code']
+
         cluster_id = cart['cluster_id']
 
     # Create reservation using existing service
@@ -801,7 +817,8 @@ async def checkout(
     reservation_data = ReservationCreate(
         cluster_id=cluster_id,
         unit_ids=unit_ids,
-        email=customer_email
+        email=customer_email,
+        promotion_code=promotion_code
     )
 
     reservation_response = await reservations_service.create_reservation(
