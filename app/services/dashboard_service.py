@@ -36,7 +36,7 @@ def get_date_range(range_type: DateRange) -> tuple[date, date]:
         return date(2020, 1, 1), today
 
 
-async def get_dashboard_overview(profile_id: str) -> DashboardOverview:
+async def get_dashboard_overview(profile_id: str, tenant_id: str) -> DashboardOverview:
     """Obtiene vista general del dashboard del organizador"""
     async with get_db_connection(use_transaction=False) as conn:
         # Conteo de eventos
@@ -47,8 +47,8 @@ async def get_dashboard_overview(profile_id: str) -> DashboardOverview:
                 COUNT(*) FILTER (WHERE start_date > NOW()) as upcoming,
                 COUNT(*) FILTER (WHERE end_date < NOW()) as past
             FROM clusters
-            WHERE profile_id = $1
-        """, profile_id)
+            WHERE profile_id = $1 AND tenant_id = $2
+        """, profile_id, tenant_id)
 
         # Totales de ventas
         sales_totals = await conn.fetchrow("""
@@ -61,8 +61,8 @@ async def get_dashboard_overview(profile_id: str) -> DashboardOverview:
             JOIN reservation_units ru ON ru.unit_id = u.id
             LEFT JOIN reservations r ON ru.reservation_id = r.id
             LEFT JOIN payments p ON p.reservation_id = r.id AND p.status = 'approved'
-            WHERE c.profile_id = $1 AND ru.status IN ('confirmed', 'used')
-        """, profile_id)
+            WHERE c.profile_id = $1 AND c.tenant_id = $2 AND ru.status IN ('confirmed', 'used')
+        """, profile_id, tenant_id)
 
         # Eventos recientes con ventas
         recent_rows = await conn.fetch("""
@@ -83,11 +83,11 @@ async def get_dashboard_overview(profile_id: str) -> DashboardOverview:
             LEFT JOIN reservation_units ru ON ru.unit_id = u.id
             LEFT JOIN reservations r ON ru.reservation_id = r.id
             LEFT JOIN payments p ON p.reservation_id = r.id
-            WHERE c.profile_id = $1
+            WHERE c.profile_id = $1 AND c.tenant_id = $2
             GROUP BY c.id
             ORDER BY c.start_date DESC
             LIMIT 5
-        """, profile_id)
+        """, profile_id, tenant_id)
 
         recent_events = []
         for row in recent_rows:
@@ -118,10 +118,10 @@ async def get_dashboard_overview(profile_id: str) -> DashboardOverview:
             JOIN reservation_units ru ON ru.unit_id = u.id
             JOIN reservations r ON ru.reservation_id = r.id
             LEFT JOIN payments p ON p.reservation_id = r.id AND p.status = 'approved'
-            WHERE c.profile_id = $1
+            WHERE c.profile_id = $1 AND c.tenant_id = $2
               AND ru.status IN ('confirmed', 'used')
               AND ru.created_at >= NOW() - INTERVAL '24 hours'
-        """, profile_id)
+        """, profile_id, tenant_id)
 
         return DashboardOverview(
             profile_id=profile_id,
@@ -139,6 +139,7 @@ async def get_dashboard_overview(profile_id: str) -> DashboardOverview:
 
 async def get_event_sales_summary(
     profile_id: str,
+    tenant_id: str,
     event_id: int
 ) -> Optional[EventSalesSummary]:
     """Obtiene resumen de ventas de un evento"""
@@ -162,9 +163,9 @@ async def get_event_sales_summary(
             LEFT JOIN reservation_units ru ON ru.unit_id = u.id
             LEFT JOIN reservations r ON ru.reservation_id = r.id
             LEFT JOIN payments p ON p.reservation_id = r.id
-            WHERE c.id = $1 AND c.profile_id = $2
+            WHERE c.id = $1 AND c.profile_id = $2 AND c.tenant_id = $3
             GROUP BY c.id
-        """, event_id, profile_id)
+        """, event_id, profile_id, tenant_id)
 
         if not row:
             return None
@@ -194,14 +195,15 @@ async def get_event_sales_summary(
 
 async def get_area_sales_breakdown(
     profile_id: str,
+    tenant_id: str,
     event_id: int
 ) -> List[AreaSalesBreakdown]:
     """Obtiene desglose de ventas por área"""
     async with get_db_connection(use_transaction=False) as conn:
         # Verify ownership
         event = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2",
-            event_id, profile_id
+            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            event_id, profile_id, tenant_id
         )
         if not event:
             return []
@@ -248,6 +250,7 @@ async def get_area_sales_breakdown(
 
 async def get_sales_time_series(
     profile_id: str,
+    tenant_id: str,
     event_id: int,
     date_range: DateRange = DateRange.LAST_30_DAYS
 ) -> Optional[SalesTimeSeries]:
@@ -255,8 +258,8 @@ async def get_sales_time_series(
     async with get_db_connection(use_transaction=False) as conn:
         # Verify ownership
         event = await conn.fetchrow(
-            "SELECT id, cluster_name FROM clusters WHERE id = $1 AND profile_id = $2",
-            event_id, profile_id
+            "SELECT id, cluster_name FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            event_id, profile_id, tenant_id
         )
         if not event:
             return None
@@ -311,14 +314,15 @@ async def get_sales_time_series(
 
 async def get_revenue_report(
     profile_id: str,
+    tenant_id: str,
     event_id: int
 ) -> Optional[RevenueReport]:
     """Obtiene reporte de ingresos"""
     async with get_db_connection(use_transaction=False) as conn:
         # Verify ownership and get event name
         event = await conn.fetchrow(
-            "SELECT id, cluster_name FROM clusters WHERE id = $1 AND profile_id = $2",
-            event_id, profile_id
+            "SELECT id, cluster_name FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            event_id, profile_id, tenant_id
         )
         if not event:
             return None
@@ -369,7 +373,7 @@ async def get_revenue_report(
             ))
 
         # By area (reuse area breakdown)
-        by_area = await get_area_sales_breakdown(profile_id, event_id)
+        by_area = await get_area_sales_breakdown(profile_id, tenant_id, event_id)
 
         return RevenueReport(
             event_id=event_id,
@@ -387,14 +391,15 @@ async def get_revenue_report(
 
 async def get_check_in_analytics(
     profile_id: str,
+    tenant_id: str,
     event_id: int
 ) -> Optional[CheckInAnalytics]:
     """Obtiene analíticas de check-in"""
     async with get_db_connection(use_transaction=False) as conn:
         # Verify ownership
         event = await conn.fetchrow(
-            "SELECT id, cluster_name, start_date FROM clusters WHERE id = $1 AND profile_id = $2",
-            event_id, profile_id
+            "SELECT id, cluster_name, start_date FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            event_id, profile_id, tenant_id
         )
         if not event:
             return None
@@ -459,6 +464,7 @@ async def get_check_in_analytics(
 
 async def get_attendee_list(
     profile_id: str,
+    tenant_id: str,
     event_id: int,
     status: Optional[str] = None,
     limit: int = 100,
@@ -468,8 +474,8 @@ async def get_attendee_list(
     async with get_db_connection(use_transaction=False) as conn:
         # Verify ownership
         event = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2",
-            event_id, profile_id
+            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
+            event_id, profile_id, tenant_id
         )
         if not event:
             return []

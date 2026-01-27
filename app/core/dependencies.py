@@ -106,7 +106,7 @@ class AuthenticatedUser:
 
     @property
     def tenant_id(self) -> str:
-        return str(self.tenant.tenant_id)
+        return str(self.session.tenant_id)
 
     @property
     def email(self) -> str:

@@ -23,7 +23,7 @@ async def get_dashboard_overview(
     - Recent events with sales summary
     - Recent activity (last 24 hours)
     """
-    overview = await dashboard_service.get_dashboard_overview(user.user_id)
+    overview = await dashboard_service.get_dashboard_overview(user.user_id, user.tenant_id)
     return overview
 
 
@@ -37,7 +37,7 @@ async def get_event_sales_summary(
 
     Includes capacity, sold/available units, revenue, and occupancy percentage.
     """
-    summary = await dashboard_service.get_event_sales_summary(user.user_id, event_id)
+    summary = await dashboard_service.get_event_sales_summary(user.user_id, user.tenant_id, event_id)
     if not summary:
         raise HTTPException(status_code=404, detail="Event not found")
     return summary
@@ -53,7 +53,7 @@ async def get_area_sales_breakdown(
 
     Shows units sold, available, reserved, and revenue per area.
     """
-    breakdown = await dashboard_service.get_area_sales_breakdown(user.user_id, event_id)
+    breakdown = await dashboard_service.get_area_sales_breakdown(user.user_id, user.tenant_id, event_id)
     if not breakdown:
         raise HTTPException(status_code=404, detail="Event not found or no areas")
     return breakdown
@@ -72,7 +72,7 @@ async def get_sales_time_series(
     and reservation statistics.
     """
     series = await dashboard_service.get_sales_time_series(
-        user.user_id, event_id, date_range
+        user.user_id, user.tenant_id, event_id, date_range
     )
     if not series:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -90,7 +90,7 @@ async def get_revenue_report(
     Includes gross/net revenue, refunds, breakdown by payment method
     and by area, average ticket price, etc.
     """
-    report = await dashboard_service.get_revenue_report(user.user_id, event_id)
+    report = await dashboard_service.get_revenue_report(user.user_id, user.tenant_id, event_id)
     if not report:
         raise HTTPException(status_code=404, detail="Event not found")
     return report
@@ -107,7 +107,7 @@ async def get_check_in_analytics(
     Shows total tickets, checked in count, pending, by area breakdown,
     first/last check-in times.
     """
-    analytics = await dashboard_service.get_check_in_analytics(user.user_id, event_id)
+    analytics = await dashboard_service.get_check_in_analytics(user.user_id, user.tenant_id, event_id)
     if not analytics:
         raise HTTPException(status_code=404, detail="Event not found")
     return analytics
@@ -128,6 +128,6 @@ async def get_attendee_list(
     Supports pagination.
     """
     attendees = await dashboard_service.get_attendee_list(
-        user.user_id, event_id, status, limit, offset
+        user.user_id, user.tenant_id, event_id, status, limit, offset
     )
     return attendees
