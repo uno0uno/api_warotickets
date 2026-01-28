@@ -89,6 +89,17 @@ class WompiGateway(BaseGateway):
             "amount_in_cents": amount_in_cents,
             "currency": currency,
             "expires_at": expiration_iso,
+            # Métodos de pago habilitados (excluye SU_PLUS y BANCOLOMBIA_COLLECT
+            # porque no envían transaction_id en el redirect)
+            "collect_methods": [
+                "CARD",
+                "NEQUI",
+                "PSE",
+                "BANCOLOMBIA_TRANSFER",
+                "BANCOLOMBIA_QR",
+                "DAVIPLATA",
+                "BANCOLOMBIA_BNPL",
+            ],
         }
 
         # Add redirect URL if provided
