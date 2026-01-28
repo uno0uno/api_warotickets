@@ -202,17 +202,15 @@ class MockR2Service:
 
 def mock_authenticated_user(user_id: str = "test-user-123", email: str = "test@test.com"):
     """Crea mock de usuario autenticado."""
-    from app.core.dependencies import AuthenticatedUser
-
-    user = AuthenticatedUser(
-        user_id=user_id,
-        email=email,
-        tenant_id=None
-    )
+    mock_user = MagicMock()
+    mock_user.user_id = user_id
+    mock_user.email = email
+    mock_user.name = "Test User"
+    mock_user.tenant_id = "test-tenant-123"
 
     return patch(
         'app.core.dependencies.get_authenticated_user',
-        return_value=user
+        return_value=mock_user
     )
 
 

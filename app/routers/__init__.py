@@ -9,7 +9,6 @@ from app.routers import reservations
 from app.routers import payments
 from app.routers import qr
 from app.routers import transfers
-from app.routers import dashboard
 from app.routers import auth
 from app.routers import uploads
 from app.routers import tenants

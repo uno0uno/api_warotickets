@@ -11,7 +11,6 @@ from app.services import reservations_service
 from app.services import payments_service
 from app.services import qr_service
 from app.services import transfer_service
-from app.services import dashboard_service
 from app.services import email_service
 from app.services import upload_service
 

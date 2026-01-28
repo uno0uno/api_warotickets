@@ -45,8 +45,3 @@ from app.models.transfer import (
     TransferInitiateRequest, TransferAcceptRequest, TransferResult,
     TransferStatus
 )
-from app.models.dashboard import (
-    EventSalesSummary, AreaSalesBreakdown, SalesTimeSeries, SalesTimePoint,
-    RevenueReport, PaymentMethodBreakdown, CheckInAnalytics, DashboardOverview,
-    DateRange, CustomerInsights, ExportRequest, ExportResponse
-)

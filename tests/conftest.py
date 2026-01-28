@@ -56,7 +56,7 @@ def mock_db_connection():
     return mock_conn
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mock_db(mock_db_connection):
     """Context manager mock para get_db_connection."""
     class MockContextManager:
@@ -66,8 +66,10 @@ def mock_db(mock_db_connection):
         async def __aexit__(self, *args):
             pass
 
+    # Patch both the original module and where it's imported in middleware
     with patch('app.database.get_db_connection', return_value=MockContextManager()):
-        yield mock_db_connection
+        with patch('app.core.middleware.get_db_connection', return_value=MockContextManager()):
+            yield mock_db_connection
 
 
 # ============================================================================
@@ -188,12 +190,12 @@ def test_reservation_data():
 @pytest.fixture
 def authenticated_user(test_user_data):
     """Mock de usuario autenticado."""
-    from app.core.dependencies import AuthenticatedUser
-    return AuthenticatedUser(
-        user_id=test_user_data["id"],
-        email=test_user_data["email"],
-        tenant_id=None
-    )
+    mock_user = MagicMock()
+    mock_user.user_id = test_user_data["id"]
+    mock_user.email = test_user_data["email"]
+    mock_user.name = test_user_data["name"]
+    mock_user.tenant_id = "test-tenant-123"
+    return mock_user
 
 
 @pytest.fixture
