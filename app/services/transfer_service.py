@@ -9,7 +9,11 @@ from app.models.transfer import (
 )
 from app.utils.qr_generator import generate_ticket_qr, generate_data_url
 from app.core.exceptions import ValidationError
-from app.services.email_service import send_transfer_notification
+from app.services.email_service import (
+    send_transfer_notification,
+    send_transfer_accepted_notification,
+    send_transfer_received_notification
+)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -313,22 +317,74 @@ async def accept_transfer(
 async def accept_transfer_public(transfer_token: str) -> dict:
     """Accept a transfer using only the token (no session required).
     Finds or creates the recipient user, accepts the transfer,
-    and returns an access token for auto-login."""
+    and returns an access token for auto-login.
+    If the transfer was already accepted, generates a new access token
+    so the recipient can re-authenticate."""
     async with get_db_connection() as conn:
-        # Find transfer by token
+        # Find pending transfer by token
         transfer = await conn.fetchrow("""
             SELECT utl.*, ru.reservation_id, ru.unit_id, r.user_id as current_owner,
-                   c.slug_cluster, c.start_date as event_date
+                   c.slug_cluster, c.start_date as event_date,
+                   c.cluster_name as event_name, a.area_name,
+                   u.nomenclature_letter_area, u.nomenclature_number_unit,
+                   p_sender.name as sender_name, p_sender.email as sender_email
             FROM unit_transfer_log utl
             JOIN reservation_units ru ON utl.reservation_unit_id = ru.id
             JOIN reservations r ON ru.reservation_id = r.id
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
+            JOIN profile p_sender ON utl.from_user_id = p_sender.id
             WHERE utl.transfer_reason LIKE $1
         """, f"PENDING|{transfer_token}|%")
 
         if not transfer:
+            # Check if transfer was already accepted (re-open link)
+            accepted = await conn.fetchrow("""
+                SELECT utl.*, c.start_date as event_date
+                FROM unit_transfer_log utl
+                JOIN reservation_units ru ON utl.reservation_unit_id = ru.id
+                JOIN units u ON ru.unit_id = u.id
+                JOIN areas a ON u.area_id = a.id
+                JOIN clusters c ON a.cluster_id = c.id
+                WHERE utl.transfer_reason LIKE $1
+            """, f"ACCEPTED|{transfer_token}|%")
+
+            if accepted:
+                # Transfer already accepted - generate new access token for the recipient
+                reason_parts = accepted['transfer_reason'].split('|')
+                recipient_email = reason_parts[2] if len(reason_parts) > 2 else None
+                if not recipient_email:
+                    return {"success": False, "message": "Datos de transferencia invalidos"}
+
+                # Find recipient user
+                recipient = await conn.fetchrow(
+                    "SELECT id FROM profile WHERE email = $1", recipient_email.lower()
+                )
+                if not recipient:
+                    return {"success": False, "message": "Usuario no encontrado"}
+
+                # Generate new magic token for auto-login
+                access_token = secrets.token_urlsafe(32)
+                event_date = accepted['event_date']
+                if event_date:
+                    token_expires = event_date + timedelta(hours=24)
+                else:
+                    token_expires = datetime.now() + timedelta(days=30)
+
+                await conn.execute("""
+                    INSERT INTO magic_tokens (id, user_id, token, verification_code, expires_at, used, created_at)
+                    VALUES (gen_random_uuid(), $1, $2::text, '000000'::varchar, $3, false, NOW())
+                """, recipient['id'], access_token, token_expires)
+
+                logger.info(f"Transfer re-open: Generated new access token for {recipient_email}")
+
+                return {
+                    "success": True,
+                    "message": "Boleta ya fue aceptada",
+                    "access_token": access_token
+                }
+
             return {"success": False, "message": "Transferencia no encontrada o token invalido"}
 
         # Parse transfer reason
@@ -397,6 +453,33 @@ async def accept_transfer_public(transfer_token: str) -> dict:
         """, user_id, access_token, token_expires)
 
         logger.info(f"Transfer accepted (public): Ticket {transfer['reservation_unit_id']} now owned by {user_id} ({recipient_email})")
+
+        # Send confirmation emails (non-blocking, don't fail if emails fail)
+        display_name = f"{transfer['nomenclature_letter_area'] or ''}-{transfer['nomenclature_number_unit'] or transfer['reservation_unit_id']}".strip('-')
+
+        try:
+            await send_transfer_accepted_notification(
+                sender_email=transfer['sender_email'],
+                sender_name=transfer['sender_name'] or 'Un usuario',
+                recipient_email=recipient_email,
+                event_name=transfer['event_name'],
+                area_name=transfer['area_name'],
+                unit_display_name=display_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to send transfer accepted email to sender: {e}")
+
+        try:
+            await send_transfer_received_notification(
+                recipient_email=recipient_email,
+                sender_name=transfer['sender_name'] or 'Un usuario',
+                event_name=transfer['event_name'],
+                event_date=transfer['event_date'],
+                area_name=transfer['area_name'],
+                unit_display_name=display_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to send transfer received email to recipient: {e}")
 
         return {
             "success": True,

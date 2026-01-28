@@ -229,47 +229,109 @@ async def send_purchase_confirmation(
 async def send_transfer_accepted_notification(
     sender_email: str,
     sender_name: str,
-    recipient_name: str,
+    recipient_email: str,
     event_name: str,
+    area_name: str,
     unit_display_name: str
 ) -> bool:
-    """Notify sender that transfer was accepted"""
-    html_body = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-            .header {{ background: #17a2b8; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>✅ Transferencia Aceptada</h1>
-            </div>
-            <div class="content">
-                <p>Hola {sender_name},</p>
-                <p><strong>{recipient_name}</strong> ha aceptado la transferencia del boleto:</p>
-                <ul>
-                    <li><strong>Evento:</strong> {event_name}</li>
-                    <li><strong>Ubicación:</strong> {unit_display_name}</li>
-                </ul>
-                <p>El boleto ahora pertenece a {recipient_name}.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+    """Notify sender that their transfer was accepted (plain text)"""
+    try:
+        text_body = f"""Hola {sender_name}!
 
-    return await send_email(
-        to_email=sender_email,
-        subject=f"✅ Transferencia aceptada - {event_name}",
-        html_body=html_body
-    )
+Tu transferencia fue aceptada.
+
+DETALLE
+--------------------
+Evento: {event_name}
+Zona: {area_name}
+Ubicacion: {unit_display_name}
+Destinatario: {recipient_email}
+
+El boleto ya no esta vinculado a tu cuenta.
+
+----
+{settings.email_signature}
+"""
+
+        client = get_ses_client()
+
+        response = client.send_email(
+            Source=f"{settings.aws_ses_from_name} <{settings.aws_ses_from_email}>",
+            Destination={'ToAddresses': [sender_email]},
+            Message={
+                'Subject': {'Data': f"Transferencia aceptada - {event_name}", 'Charset': 'UTF-8'},
+                'Body': {
+                    'Text': {'Data': text_body, 'Charset': 'UTF-8'}
+                }
+            }
+        )
+
+        logger.info(f"Transfer accepted notification sent to {sender_email}: {response['MessageId']}")
+        return True
+
+    except ClientError as e:
+        logger.error(f"Failed to send transfer accepted notification to {sender_email}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error sending transfer accepted notification: {e}")
+        return False
+
+
+async def send_transfer_received_notification(
+    recipient_email: str,
+    sender_name: str,
+    event_name: str,
+    event_date: Optional[datetime],
+    area_name: str,
+    unit_display_name: str
+) -> bool:
+    """Notify recipient that they received a ticket via transfer (plain text)"""
+    try:
+        event_date_str = event_date.strftime('%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
+        my_tickets_url = f"{settings.frontend_url}/mis-boletas"
+
+        text_body = f"""Hola!
+
+Has recibido un boleto de {sender_name} en WaRo Tickets.
+
+DETALLE DEL BOLETO
+--------------------
+Evento: {event_name}
+Fecha: {event_date_str}
+Zona: {area_name}
+Ubicacion: {unit_display_name}
+
+VER TUS BOLETAS
+--------------------
+Ingresa a tu cuenta para ver tu boleto y codigo QR:
+{my_tickets_url}
+
+----
+{settings.email_signature}
+"""
+
+        client = get_ses_client()
+
+        response = client.send_email(
+            Source=f"{settings.aws_ses_from_name} <{settings.aws_ses_from_email}>",
+            Destination={'ToAddresses': [recipient_email]},
+            Message={
+                'Subject': {'Data': f"Recibiste un boleto para {event_name}", 'Charset': 'UTF-8'},
+                'Body': {
+                    'Text': {'Data': text_body, 'Charset': 'UTF-8'}
+                }
+            }
+        )
+
+        logger.info(f"Transfer received notification sent to {recipient_email}: {response['MessageId']}")
+        return True
+
+    except ClientError as e:
+        logger.error(f"Failed to send transfer received notification to {recipient_email}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error sending transfer received notification: {e}")
+        return False
 
 
 async def send_simple_purchase_confirmation(
