@@ -16,6 +16,7 @@ async def list_public_events(
     event_type: Optional[str] = Query(None, description="Filter by event type"),
     start_date_from: Optional[datetime] = Query(None, description="Filter events starting from this date"),
     start_date_to: Optional[datetime] = Query(None, description="Filter events starting before this date"),
+    city: Optional[str] = Query(None, description="Filter by city (from extra_attributes)"),
     tenant_id: str = Depends(require_tenant_id)
 ):
     """
@@ -28,7 +29,8 @@ async def list_public_events(
         offset=offset,
         event_type=event_type,
         start_date_from=start_date_from,
-        start_date_to=start_date_to
+        start_date_to=start_date_to,
+        city=city
     )
     return events
 

@@ -140,6 +140,8 @@ class EventSummary(BaseModel):
     cover_image_url: Optional[str] = None
     total_capacity: Optional[int] = None
     tickets_available: Optional[int] = None
+    total_sold: Optional[int] = None
+    total_checked_in: Optional[int] = None
     min_price: Optional[float] = None
     max_price: Optional[float] = None
 

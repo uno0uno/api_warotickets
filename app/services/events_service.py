@@ -63,6 +63,18 @@ async def get_events(
                     JOIN areas a ON u.area_id = a.id
                     WHERE a.cluster_id = c.id AND u.status = 'available'
                 ) as tickets_available,
+                (
+                    SELECT COUNT(*) FROM reservation_units ru
+                    JOIN units u ON ru.unit_id = u.id
+                    JOIN areas a ON u.area_id = a.id
+                    WHERE a.cluster_id = c.id AND ru.status IN ('confirmed', 'approved', 'used')
+                ) as total_sold,
+                (
+                    SELECT COUNT(*) FROM reservation_units ru
+                    JOIN units u ON ru.unit_id = u.id
+                    JOIN areas a ON u.area_id = a.id
+                    WHERE a.cluster_id = c.id AND ru.status = 'used'
+                ) as total_checked_in,
                 (SELECT MIN(a.price) FROM areas a WHERE a.cluster_id = c.id) as min_price,
                 (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price
             FROM clusters c
@@ -370,7 +382,8 @@ async def get_public_events(
     offset: int = 0,
     event_type: Optional[str] = None,
     start_date_from: Optional[datetime] = None,
-    start_date_to: Optional[datetime] = None
+    start_date_to: Optional[datetime] = None,
+    city: Optional[str] = None
 ) -> List[EventSummary]:
     """Get public events (for public listing)"""
     async with get_db_connection(use_transaction=False) as conn:
@@ -423,6 +436,11 @@ async def get_public_events(
         if start_date_to:
             query += f" AND c.start_date <= ${param_idx}"
             params.append(start_date_to)
+            param_idx += 1
+
+        if city:
+            query += f" AND LOWER(c.extra_attributes->>'city') = LOWER(${param_idx})"
+            params.append(city)
             param_idx += 1
 
         query += f" ORDER BY c.start_date ASC NULLS LAST LIMIT ${param_idx} OFFSET ${param_idx + 1}"
