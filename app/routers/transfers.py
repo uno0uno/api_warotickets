@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
+from pydantic import BaseModel
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser
 from app.models.transfer import (
     Transfer, TransferSummary, TransferLogEntry, PendingTransfer,
@@ -7,7 +8,39 @@ from app.models.transfer import (
 )
 from app.services import transfer_service
 
+
+class EventTransfer(BaseModel):
+    id: int
+    transfer_date: Optional[str] = None
+    status: str
+    from_name: Optional[str] = None
+    from_email: Optional[str] = None
+    to_name: Optional[str] = None
+    to_email: Optional[str] = None
+    area_name: Optional[str] = None
+    unit_display_name: Optional[str] = None
+
+
 router = APIRouter()
+
+
+@router.get("/event/{cluster_id}", response_model=List[EventTransfer])
+async def get_event_transfers(
+    cluster_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Get all transfers for an event (admin view).
+    Requires organizer ownership of the event.
+    """
+    transfers = await transfer_service.get_event_transfers(
+        cluster_id, user.user_id, limit=limit, offset=offset
+    )
+    if transfers is None:
+        raise HTTPException(status_code=403, detail="Not authorized for this event")
+    return transfers
 
 
 @router.post("/initiate", response_model=Transfer, status_code=201)

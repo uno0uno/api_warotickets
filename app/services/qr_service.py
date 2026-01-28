@@ -206,6 +206,125 @@ async def validate_qr(
         )
 
 
+async def validate_qr_simple(
+    data: QRValidationRequest,
+    validator_user_id: str
+) -> QRValidationResponse:
+    """
+    Validate QR code without requiring reservation_id in the URL.
+    Looks up reservation_id from the parsed QR data.
+    """
+    # Verify QR signature
+    qr_info = verify_qr_signature(data.qr_data)
+
+    if not qr_info:
+        return QRValidationResponse(
+            is_valid=False,
+            result=ValidationResult.INVALID_SIGNATURE,
+            message="Codigo QR invalido o alterado"
+        )
+
+    async with get_db_connection() as conn:
+        # Look up ticket by reservation_unit_id (from QR data)
+        ticket = await conn.fetchrow("""
+            SELECT ru.id, ru.unit_id, ru.status, ru.original_user_id, ru.reservation_id,
+                   r.user_id, r.start_date, r.end_date,
+                   u.nomenclature_letter_area, u.nomenclature_number_unit,
+                   a.area_name,
+                   c.id as cluster_id, c.cluster_name, c.slug_cluster, c.start_date as event_start,
+                   p.name as owner_name, p.email as owner_email
+            FROM reservation_units ru
+            JOIN reservations r ON ru.reservation_id = r.id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            JOIN profile p ON r.user_id = p.id
+            WHERE ru.id = $1
+        """, qr_info['reservation_unit_id'])
+
+        if not ticket:
+            return QRValidationResponse(
+                is_valid=False,
+                result=ValidationResult.TICKET_NOT_FOUND,
+                message="Boleto no encontrado"
+            )
+
+        # Verify event matches
+        if ticket['slug_cluster'] != data.event_slug:
+            return QRValidationResponse(
+                is_valid=False,
+                result=ValidationResult.WRONG_EVENT,
+                message=f"Este boleto es para otro evento: {ticket['cluster_name']}"
+            )
+
+        # Check ticket status
+        if ticket['status'] == 'used':
+            return QRValidationResponse(
+                is_valid=False,
+                result=ValidationResult.ALREADY_USED,
+                message="Este boleto ya fue utilizado"
+            )
+
+        if ticket['status'] == 'transferred':
+            return QRValidationResponse(
+                is_valid=False,
+                result=ValidationResult.TICKET_TRANSFERRED,
+                message="Este boleto fue transferido a otro usuario"
+            )
+
+        if ticket['status'] == 'cancelled':
+            return QRValidationResponse(
+                is_valid=False,
+                result=ValidationResult.TICKET_CANCELLED,
+                message="Este boleto fue cancelado"
+            )
+
+        if ticket['status'] != 'confirmed':
+            return QRValidationResponse(
+                is_valid=False,
+                result=ValidationResult.TICKET_NOT_FOUND,
+                message=f"Estado de boleto invalido: {ticket['status']}"
+            )
+
+        # Mark ticket as used
+        await conn.execute("""
+            UPDATE reservation_units
+            SET status = 'used', updated_at = NOW()
+            WHERE id = $1
+        """, qr_info['reservation_unit_id'])
+
+        # Track check-in
+        await _track_reservation_unit_status(
+            conn,
+            qr_info['reservation_unit_id'],
+            str(ticket['reservation_id']),
+            ticket['status'],
+            'used',
+            changed_by=validator_user_id,
+            reason='Check-in at event entrance'
+        )
+
+        # Generate display name
+        display_name = f"{ticket['nomenclature_letter_area'] or ''}-{ticket['nomenclature_number_unit'] or ticket['unit_id']}".strip('-')
+
+        logger.info(f"Check-in: Ticket {qr_info['reservation_unit_id']} validated by {validator_user_id}")
+
+        return QRValidationResponse(
+            is_valid=True,
+            result=ValidationResult.VALID,
+            message="Boleto valido - Acceso permitido",
+            reservation_unit_id=ticket['id'],
+            reservation_id=str(ticket['reservation_id']),
+            unit_id=ticket['unit_id'],
+            unit_display_name=display_name,
+            area_name=ticket['area_name'],
+            owner_name=ticket['owner_name'],
+            owner_email=ticket['owner_email'],
+            event_name=ticket['cluster_name'],
+            event_date=ticket['event_start']
+        )
+
+
 async def get_check_in_stats(cluster_id: int, profile_id: str) -> Optional[CheckInStats]:
     """Get check-in statistics for an event"""
     async with get_db_connection(use_transaction=False) as conn:

@@ -619,6 +619,67 @@ async def get_incoming_transfers(user_email: str) -> List[PendingTransfer]:
         return transfers
 
 
+async def get_event_transfers(
+    cluster_id: int,
+    profile_id: str,
+    limit: int = 50,
+    offset: int = 0
+) -> Optional[List[dict]]:
+    """Get all transfers for an event (admin view). Verifies organizer ownership."""
+    async with get_db_connection(use_transaction=False) as conn:
+        # Verify ownership
+        owner = await conn.fetchval(
+            "SELECT profile_id FROM clusters WHERE id = $1", cluster_id
+        )
+        if not owner or str(owner) != profile_id:
+            return None
+
+        rows = await conn.fetch("""
+            SELECT utl.id, utl.transfer_date, utl.transfer_reason,
+                   pf.name as from_name, pf.email as from_email,
+                   pt.name as to_name, pt.email as to_email,
+                   a.area_name,
+                   u.nomenclature_letter_area, u.nomenclature_number_unit,
+                   ru.id as reservation_unit_id
+            FROM unit_transfer_log utl
+            JOIN profile pf ON utl.from_user_id = pf.id
+            LEFT JOIN profile pt ON utl.to_user_id = pt.id
+            JOIN reservation_units ru ON utl.reservation_unit_id = ru.id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            WHERE a.cluster_id = $1
+            ORDER BY utl.transfer_date DESC
+            LIMIT $2 OFFSET $3
+        """, cluster_id, limit, offset)
+
+        transfers = []
+        for row in rows:
+            reason = row['transfer_reason'] or ''
+            parts = reason.split('|')
+            status = parts[0].lower() if parts else 'unknown'
+
+            # For pending transfers, extract recipient email from reason
+            to_email = row['to_email']
+            if not to_email and len(parts) > 2:
+                to_email = parts[2]
+
+            display_name = f"{row['nomenclature_letter_area'] or ''}-{row['nomenclature_number_unit'] or row['reservation_unit_id']}".strip('-')
+
+            transfers.append({
+                "id": row['id'],
+                "transfer_date": row['transfer_date'].isoformat() if row['transfer_date'] else None,
+                "status": status,
+                "from_name": row['from_name'],
+                "from_email": row['from_email'],
+                "to_name": row['to_name'],
+                "to_email": to_email,
+                "area_name": row['area_name'],
+                "unit_display_name": display_name,
+            })
+
+        return transfers
+
+
 async def get_transfer_history(reservation_unit_id: int) -> List[TransferLogEntry]:
     """Get transfer history for a ticket"""
     async with get_db_connection(use_transaction=False) as conn:

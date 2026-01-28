@@ -85,6 +85,21 @@ async def get_ticket_qr_image(
     )
 
 
+@router.post("/validate", response_model=QRValidationResponse)
+async def validate_qr_simple(
+    data: QRValidationRequest,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Validate a QR code without requiring reservation_id in the URL.
+
+    Simplified endpoint for event staff scanning devices.
+    Extracts reservation info from the QR data itself.
+    """
+    result = await qr_service.validate_qr_simple(data, user.user_id)
+    return result
+
+
 @router.post("/{reservation_id}/validate", response_model=QRValidationResponse)
 async def validate_qr(
     reservation_id: str,

@@ -128,6 +128,55 @@ async def get_my_invoice_detail(
     return invoice
 
 
+class EventReservation(BaseModel):
+    id: str
+    status: str
+    reservation_date: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    total_units: int = 0
+    total_paid: float = 0
+    areas: List[str] = []
+
+
+@router.get("/event/{cluster_id}", response_model=List[EventReservation])
+async def get_event_reservations(
+    cluster_id: int,
+    status: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Get all reservations for an event (admin view).
+    Requires organizer ownership of the event.
+    """
+    reservations = await reservations_service.get_event_reservations(
+        cluster_id, user.user_id, status=status, limit=limit, offset=offset
+    )
+    if reservations is None:
+        raise HTTPException(status_code=403, detail="Not authorized for this event")
+    return reservations
+
+
+@router.get("/event/{cluster_id}/{reservation_id}")
+async def get_event_reservation_detail(
+    cluster_id: int,
+    reservation_id: str,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Get full detail of a reservation for admin view.
+    Includes customer info, payment, ticket breakdown, and individual units.
+    """
+    detail = await reservations_service.get_event_reservation_detail(
+        cluster_id, reservation_id, user.user_id
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    return detail
+
+
 @router.get("/{reservation_id}", response_model=Reservation)
 async def get_reservation(
     reservation_id: str,
