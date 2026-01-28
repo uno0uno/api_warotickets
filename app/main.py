@@ -87,7 +87,7 @@ app.middleware("http")(tenant_detection_middleware)   # runs first
 from app.routers import (
     events, areas, units, public,
     sale_stages, promotions, reservations, payments,
-    qr, transfers, auth, tenants, ticket_cart
+    qr, transfers, auth, tenants, ticket_cart, uploads
 )
 
 # Authentication (public endpoints)
@@ -121,6 +121,9 @@ app.include_router(tenants.router, prefix="/tenants", tags=["tenants"])
 
 # Shopping cart (public - no auth required)
 app.include_router(ticket_cart.router, prefix="/cart", tags=["cart"])
+
+# Uploads (requires auth)
+app.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 
 @app.get("/")
 async def root():
