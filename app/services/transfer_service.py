@@ -10,6 +10,7 @@ from app.models.transfer import (
 from app.utils.qr_generator import generate_ticket_qr, generate_data_url
 from app.core.exceptions import ValidationError
 from app.services.email_service import send_transfer_notification
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +308,101 @@ async def accept_transfer(
             transfer_id=transfer['id'],
             new_qr_code=generate_data_url(new_qr)
         )
+
+
+async def accept_transfer_public(transfer_token: str) -> dict:
+    """Accept a transfer using only the token (no session required).
+    Finds or creates the recipient user, accepts the transfer,
+    and returns an access token for auto-login."""
+    async with get_db_connection() as conn:
+        # Find transfer by token
+        transfer = await conn.fetchrow("""
+            SELECT utl.*, ru.reservation_id, ru.unit_id, r.user_id as current_owner,
+                   c.slug_cluster, c.start_date as event_date
+            FROM unit_transfer_log utl
+            JOIN reservation_units ru ON utl.reservation_unit_id = ru.id
+            JOIN reservations r ON ru.reservation_id = r.id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            WHERE utl.transfer_reason LIKE $1
+        """, f"PENDING|{transfer_token}|%")
+
+        if not transfer:
+            return {"success": False, "message": "Transferencia no encontrada o token invalido"}
+
+        # Parse transfer reason
+        reason_parts = transfer['transfer_reason'].split('|')
+        if len(reason_parts) < 4:
+            return {"success": False, "message": "Datos de transferencia invalidos"}
+
+        _, token, recipient_email, expires_at_str = reason_parts[:4]
+
+        # Check expiration
+        expires_at = datetime.fromisoformat(expires_at_str)
+        if datetime.now() > expires_at:
+            await conn.execute("""
+                UPDATE unit_transfer_log
+                SET transfer_reason = REPLACE(transfer_reason, 'PENDING|', 'EXPIRED|')
+                WHERE id = $1
+            """, transfer['id'])
+            await conn.execute("""
+                UPDATE reservation_units
+                SET status = 'confirmed', updated_at = NOW()
+                WHERE id = $1
+            """, transfer['reservation_unit_id'])
+            return {"success": False, "message": "Esta transferencia ha expirado"}
+
+        # Get or create recipient user
+        from app.services.reservations_service import get_or_create_user
+        user_id = await get_or_create_user(conn, recipient_email)
+
+        # Update transfer log
+        await conn.execute("""
+            UPDATE unit_transfer_log
+            SET to_user_id = $2,
+                transfer_reason = REPLACE(transfer_reason, 'PENDING|', 'ACCEPTED|')
+            WHERE id = $1
+        """, transfer['id'], user_id)
+
+        # Update reservation_unit with new owner
+        await conn.execute("""
+            UPDATE reservation_units
+            SET status = 'confirmed',
+                original_user_id = $2,
+                transfer_date = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+        """, transfer['reservation_unit_id'], user_id)
+
+        # Generate new QR code
+        generate_ticket_qr(
+            reservation_unit_id=transfer['reservation_unit_id'],
+            unit_id=transfer['unit_id'],
+            user_id=user_id,
+            event_slug=transfer['slug_cluster']
+        )
+
+        # Generate magic token for auto-login (same pattern as payments_service)
+        access_token = secrets.token_urlsafe(32)
+        event_date = transfer['event_date']
+        if event_date:
+            token_expires = event_date + timedelta(hours=24)
+        else:
+            token_expires = datetime.now() + timedelta(days=30)
+
+        await conn.execute("""
+            INSERT INTO magic_tokens (id, user_id, token, verification_code, expires_at, used, created_at)
+            VALUES (gen_random_uuid(), $1, $2::text, '000000'::varchar, $3, false, NOW())
+        """, user_id, access_token, token_expires)
+
+        logger.info(f"Transfer accepted (public): Ticket {transfer['reservation_unit_id']} now owned by {user_id} ({recipient_email})")
+
+        return {
+            "success": True,
+            "message": "Boleta aceptada exitosamente",
+            "access_token": access_token
+        }
 
 
 async def cancel_transfer(

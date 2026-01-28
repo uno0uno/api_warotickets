@@ -248,7 +248,8 @@ async def session_validation_middleware(request: Request, call_next):
         path = request.url.path
         public_endpoints = [
             '/docs', '/openapi.json', '/health',
-            '/auth/sign-in-magic-link', '/auth/verify-code', '/auth/verify'
+            '/auth/sign-in-magic-link', '/auth/verify-code', '/auth/verify',
+            '/transfers/accept-public'
         ]
 
         public_prefixes = ['/public', '/webhooks']

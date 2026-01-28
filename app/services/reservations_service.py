@@ -608,7 +608,10 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
             JOIN reservations r ON ru.reservation_id = r.id
-            WHERE (r.user_id = $1 OR ru.original_user_id = $1)
+            WHERE (
+                ru.original_user_id = $1
+                OR (r.user_id = $1 AND ru.original_user_id IS NULL)
+              )
               AND ru.status IN ('confirmed', 'used', 'transferred')
             ORDER BY c.start_date ASC
         """, user_id)

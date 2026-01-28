@@ -44,6 +44,19 @@ async def accept_transfer(
     return result
 
 
+@router.post("/accept-public", status_code=200)
+async def accept_transfer_public(data: TransferAcceptRequest):
+    """
+    Accept a transfer using only the token (no authentication required).
+    The recipient clicks the email link, this endpoint validates the token,
+    accepts the transfer, and returns an access token for auto-login.
+    """
+    result = await transfer_service.accept_transfer_public(data.transfer_token)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
 @router.post("/resend/{reservation_unit_id}", status_code=200)
 async def resend_transfer(
     reservation_unit_id: int,
