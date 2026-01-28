@@ -51,11 +51,9 @@ async def get_events(
                 c.end_date,
                 c.cluster_type,
                 c.is_active,
-                (
-                    SELECT i.path FROM images i
-                    JOIN cluster_images ci ON ci.image_id = i.id
-                    WHERE ci.cluster_id = c.id AND ci.type_image = 'cover'
-                    LIMIT 1
+                COALESCE(
+                    (SELECT ei.image_url FROM event_images ei WHERE ei.cluster_id = c.id AND ei.image_type = 'cover' LIMIT 1),
+                    (SELECT i.path FROM images i JOIN cluster_images ci ON ci.image_id = i.id WHERE ci.cluster_id = c.id AND ci.type_image = 'cover' LIMIT 1)
                 ) as cover_image_url,
                 (SELECT COALESCE(SUM(a.capacity), 0) FROM areas a WHERE a.cluster_id = c.id) as total_capacity,
                 (
@@ -397,11 +395,9 @@ async def get_public_events(
                 c.end_date,
                 c.cluster_type,
                 c.is_active,
-                (
-                    SELECT i.path FROM images i
-                    JOIN cluster_images ci ON ci.image_id = i.id
-                    WHERE ci.cluster_id = c.id AND ci.type_image = 'cover'
-                    LIMIT 1
+                COALESCE(
+                    (SELECT ei.image_url FROM event_images ei WHERE ei.cluster_id = c.id AND ei.image_type = 'cover' LIMIT 1),
+                    (SELECT i.path FROM images i JOIN cluster_images ci ON ci.image_id = i.id WHERE ci.cluster_id = c.id AND ci.type_image = 'cover' LIMIT 1)
                 ) as cover_image_url,
                 (SELECT COALESCE(SUM(a.capacity), 0) FROM areas a WHERE a.cluster_id = c.id) as total_capacity,
                 (
