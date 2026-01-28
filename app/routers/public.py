@@ -5,7 +5,7 @@ from app.models.event import EventSummary, EventPublic
 from app.models.area import AreaSummary
 from app.services import events_service, areas_service, promotions_service, sale_stages_service
 from app.services import event_images_service
-from app.core.dependencies import require_tenant_id
+from app.core.dependencies import get_tenant_id
 
 router = APIRouter()
 
@@ -18,11 +18,12 @@ async def list_public_events(
     start_date_from: Optional[datetime] = Query(None, description="Filter events starting from this date"),
     start_date_to: Optional[datetime] = Query(None, description="Filter events starting before this date"),
     city: Optional[str] = Query(None, description="Filter by city (from extra_attributes)"),
-    tenant_id: str = Depends(require_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id)
 ):
     """
     List all public active events.
     No authentication required.
+    If tenant_id is provided, filters by tenant. Otherwise returns all public events.
     """
     events = await events_service.get_public_events(
         tenant_id=tenant_id,
@@ -39,7 +40,7 @@ async def list_public_events(
 @router.get("/events/{slug}", response_model=EventPublic)
 async def get_public_event(
     slug: str,
-    tenant_id: str = Depends(require_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id)
 ):
     """
     Get public event details by slug.
@@ -81,7 +82,7 @@ async def get_public_event(
 @router.get("/events/{slug}/areas", response_model=List[AreaSummary])
 async def get_public_event_areas(
     slug: str,
-    tenant_id: str = Depends(require_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id)
 ):
     """
     Get available areas for a public event.
@@ -99,7 +100,7 @@ async def get_public_event_areas(
 @router.get("/events/{slug}/summary")
 async def get_public_event_summary(
     slug: str,
-    tenant_id: str = Depends(require_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id)
 ):
     """
     Get summary info for a public event.
@@ -134,7 +135,7 @@ async def get_public_event_summary(
 @router.get("/events/{slug}/promotions")
 async def get_public_event_promotions(
     slug: str,
-    tenant_id: str = Depends(require_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id)
 ):
     """
     Get active promotions for a public event.
@@ -152,7 +153,7 @@ async def get_public_event_promotions(
 @router.get("/events/{slug}/sale-stages")
 async def get_public_event_sale_stages(
     slug: str,
-    tenant_id: str = Depends(require_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id)
 ):
     """
     Get active sale stages for a public event.
