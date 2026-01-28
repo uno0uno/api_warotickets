@@ -44,7 +44,8 @@ class PaymentMethodType(str, Enum):
 
     # Puntos y cuotas
     PCOL = "PCOL"  # Puntos Colombia
-    BNPL = "BNPL"  # Buy Now Pay Later (Cuotas sin interés)
+    BNPL = "BNPL"  # Buy Now Pay Later (legacy)
+    BANCOLOMBIA_BNPL = "BANCOLOMBIA_BNPL"  # Cuotas sin interés Bancolombia
     SU_PLUS = "SU_PLUS"  # SU+ Pay (pago a cuotas $35k-$5M COP)
 
     # Otros (legacy/compatibilidad)
@@ -64,7 +65,8 @@ PAYMENT_METHOD_DISPLAY_NAMES = {
     "BANCOLOMBIA_QR": "QR Bancolombia",
     "BANCOLOMBIA_COLLECT": "Pago en efectivo (Corresponsal)",
     "PCOL": "Puntos Colombia",
-    "BNPL": "Cuotas sin interés Bancolombia",
+    "BNPL": "Cuotas sin interés",
+    "BANCOLOMBIA_BNPL": "Cuotas sin interés Bancolombia",
     "SU_PLUS": "SU+ Pay (cuotas)",
     "BOTON_BANCOLOMBIA": "Botón Bancolombia",
     "CASH": "Efectivo",
