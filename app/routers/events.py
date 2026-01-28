@@ -6,7 +6,13 @@ from app.models.event import (
     Event, EventCreate, EventUpdate, EventSummary,
     EventImageCreate, EventImage, LegalInfoCreate, LegalInfo
 )
+from app.models.event_image import (
+    EventImageCreate as NewEventImageCreate,
+    EventImageUpdate,
+    EventImageSummary
+)
 from app.services import events_service
+from app.services import event_images_service
 
 router = APIRouter()
 
@@ -128,3 +134,100 @@ async def create_legal_info(
     """
     legal_info = await events_service.create_legal_info(data)
     return legal_info
+
+
+# ============================================
+# New Event Images Endpoints (event_images table)
+# ============================================
+
+@router.get("/{event_id}/event-images", response_model=List[EventImageSummary])
+async def list_event_images(
+    event_id: int,
+    image_type: Optional[str] = Query(None, description="Filter by type: banner, flyer, cover, gallery"),
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    List all images for an event.
+    """
+    images = await event_images_service.get_event_images(event_id, image_type)
+    return images
+
+
+@router.post("/{event_id}/event-images", response_model=dict, status_code=201)
+async def create_event_image(
+    event_id: int,
+    data: NewEventImageCreate,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Add a banner, flyer, cover, or gallery image to an event.
+
+    For banner, flyer, cover: replaces any existing image of that type.
+    For gallery: allows multiple images.
+
+    Image types:
+    - banner: 1960x600 horizontal banner for event page header
+    - flyer: Vertical/square promotional image
+    - cover: Square thumbnail for listings
+    - gallery: Additional event photos
+    """
+    image = await event_images_service.create_event_image(
+        cluster_id=event_id,
+        image_data=data,
+        profile_id=user.user_id
+    )
+    if not image:
+        raise HTTPException(status_code=404, detail="Event not found or not authorized")
+    return image
+
+
+@router.put("/{event_id}/event-images/{image_id}", response_model=dict)
+async def update_event_image(
+    event_id: int,
+    image_id: int,
+    data: EventImageUpdate,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Update an event image (URL, alt text, dimensions).
+    """
+    image = await event_images_service.update_event_image(
+        image_id=image_id,
+        cluster_id=event_id,
+        image_data=data,
+        profile_id=user.user_id
+    )
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found or not authorized")
+    return image
+
+
+@router.delete("/{event_id}/event-images/{image_id}", status_code=204)
+async def delete_event_image(
+    event_id: int,
+    image_id: int,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Delete an event image.
+    """
+    deleted = await event_images_service.delete_event_image(
+        image_id=image_id,
+        cluster_id=event_id,
+        profile_id=user.user_id
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Image not found or not authorized")
+
+
+@router.get("/{event_id}/event-images/urls", response_model=dict)
+async def get_event_images_urls(
+    event_id: int,
+    user: AuthenticatedUser = Depends(get_authenticated_user)
+):
+    """
+    Get all image URLs for an event as a flat dictionary.
+    Returns: { banner_image_url, flyer_image_url, cover_image_url }
+    """
+    urls = await event_images_service.get_event_images_urls(event_id)
+    return urls

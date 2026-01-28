@@ -4,6 +4,13 @@ from app.models.event import (
     EventImage, EventImageCreate, EventPublic, EventWithAreas,
     LegalInfo, LegalInfoCreate, EventType, EventStatus
 )
+from app.models.event_image import (
+    EventImage as NewEventImage,
+    EventImageCreate as NewEventImageCreate,
+    EventImageUpdate,
+    EventImageSummary,
+    ImageType
+)
 from app.models.area import (
     Area, AreaCreate, AreaUpdate, AreaSummary,
     AreaAvailability, AreaBulkCreate, AreaWithUnits, AreaStatus

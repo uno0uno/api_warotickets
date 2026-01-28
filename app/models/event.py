@@ -165,6 +165,7 @@ class EventPublic(BaseModel):
     cluster_type: Optional[str] = None
     cover_image_url: Optional[str] = None
     banner_image_url: Optional[str] = None
+    flyer_image_url: Optional[str] = None
     extra_attributes: Optional[dict] = None
 
     class Config:

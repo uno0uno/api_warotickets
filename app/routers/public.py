@@ -4,6 +4,7 @@ from datetime import datetime
 from app.models.event import EventSummary, EventPublic
 from app.models.area import AreaSummary
 from app.services import events_service, areas_service, promotions_service, sale_stages_service
+from app.services import event_images_service
 from app.core.dependencies import require_tenant_id
 
 router = APIRouter()
@@ -48,6 +49,20 @@ async def get_public_event(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    # Get images from new event_images table
+    new_images = await event_images_service.get_event_images_urls(event.id)
+
+    # Fall back to old cluster_images table if not found in new table
+    cover_url = new_images.get('cover_image_url') or next(
+        (img.image_url for img in event.images if img.type_image == 'cover'),
+        None
+    )
+    banner_url = new_images.get('banner_image_url') or next(
+        (img.image_url for img in event.images if img.type_image == 'banner'),
+        None
+    )
+    flyer_url = new_images.get('flyer_image_url')
+
     return EventPublic(
         id=event.id,
         cluster_name=event.cluster_name,
@@ -56,14 +71,9 @@ async def get_public_event(
         start_date=event.start_date,
         end_date=event.end_date,
         cluster_type=event.cluster_type,
-        cover_image_url=next(
-            (img.image_url for img in event.images if img.type_image == 'cover'),
-            None
-        ),
-        banner_image_url=next(
-            (img.image_url for img in event.images if img.type_image == 'banner'),
-            None
-        ),
+        cover_image_url=cover_url,
+        banner_image_url=banner_url,
+        flyer_image_url=flyer_url,
         extra_attributes=event.extra_attributes
     )
 
