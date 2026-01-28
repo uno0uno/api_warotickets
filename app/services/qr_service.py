@@ -212,35 +212,54 @@ async def validate_qr_simple(
 ) -> QRValidationResponse:
     """
     Validate QR code without requiring reservation_id in the URL.
-    Looks up reservation_id from the parsed QR data.
+    Supports both UUID-based qr_code lookup and signed WT: format.
     """
-    # Verify QR signature
-    qr_info = verify_qr_signature(data.qr_data)
+    qr_info = None
+    lookup_by_qr_code = False
 
+    # Try signed format first
+    if data.qr_data.startswith("WT:"):
+        qr_info = verify_qr_signature(data.qr_data)
+
+    # If not signed format or signature failed, treat as UUID qr_code
     if not qr_info:
-        return QRValidationResponse(
-            is_valid=False,
-            result=ValidationResult.INVALID_SIGNATURE,
-            message="Codigo QR invalido o alterado"
-        )
+        lookup_by_qr_code = True
 
     async with get_db_connection() as conn:
-        # Look up ticket by reservation_unit_id (from QR data)
-        ticket = await conn.fetchrow("""
-            SELECT ru.id, ru.unit_id, ru.status, ru.original_user_id, ru.reservation_id,
-                   r.user_id, r.start_date, r.end_date,
-                   u.nomenclature_letter_area, u.nomenclature_number_unit,
-                   a.area_name,
-                   c.id as cluster_id, c.cluster_name, c.slug_cluster, c.start_date as event_start,
-                   p.name as owner_name, p.email as owner_email
-            FROM reservation_units ru
-            JOIN reservations r ON ru.reservation_id = r.id
-            JOIN units u ON ru.unit_id = u.id
-            JOIN areas a ON u.area_id = a.id
-            JOIN clusters c ON a.cluster_id = c.id
-            JOIN profile p ON r.user_id = p.id
-            WHERE ru.id = $1
-        """, qr_info['reservation_unit_id'])
+        if lookup_by_qr_code:
+            # Look up ticket by qr_code UUID
+            ticket = await conn.fetchrow("""
+                SELECT ru.id, ru.unit_id, ru.status, ru.original_user_id, ru.reservation_id,
+                       r.user_id, r.start_date, r.end_date,
+                       u.nomenclature_letter_area, u.nomenclature_number_unit,
+                       a.area_name,
+                       c.id as cluster_id, c.cluster_name, c.slug_cluster, c.start_date as event_start,
+                       p.name as owner_name, p.email as owner_email
+                FROM reservation_units ru
+                JOIN reservations r ON ru.reservation_id = r.id
+                JOIN units u ON ru.unit_id = u.id
+                JOIN areas a ON u.area_id = a.id
+                JOIN clusters c ON a.cluster_id = c.id
+                JOIN profile p ON r.user_id = p.id
+                WHERE ru.qr_code = $1
+            """, data.qr_data.strip())
+        else:
+            # Look up ticket by reservation_unit_id (from signed QR data)
+            ticket = await conn.fetchrow("""
+                SELECT ru.id, ru.unit_id, ru.status, ru.original_user_id, ru.reservation_id,
+                       r.user_id, r.start_date, r.end_date,
+                       u.nomenclature_letter_area, u.nomenclature_number_unit,
+                       a.area_name,
+                       c.id as cluster_id, c.cluster_name, c.slug_cluster, c.start_date as event_start,
+                       p.name as owner_name, p.email as owner_email
+                FROM reservation_units ru
+                JOIN reservations r ON ru.reservation_id = r.id
+                JOIN units u ON ru.unit_id = u.id
+                JOIN areas a ON u.area_id = a.id
+                JOIN clusters c ON a.cluster_id = c.id
+                JOIN profile p ON r.user_id = p.id
+                WHERE ru.id = $1
+            """, qr_info['reservation_unit_id'])
 
         if not ticket:
             return QRValidationResponse(
@@ -291,12 +310,12 @@ async def validate_qr_simple(
             UPDATE reservation_units
             SET status = 'used', updated_at = NOW()
             WHERE id = $1
-        """, qr_info['reservation_unit_id'])
+        """, ticket['id'])
 
         # Track check-in
         await _track_reservation_unit_status(
             conn,
-            qr_info['reservation_unit_id'],
+            ticket['id'],
             str(ticket['reservation_id']),
             ticket['status'],
             'used',
@@ -307,7 +326,7 @@ async def validate_qr_simple(
         # Generate display name
         display_name = f"{ticket['nomenclature_letter_area'] or ''}-{ticket['nomenclature_number_unit'] or ticket['unit_id']}".strip('-')
 
-        logger.info(f"Check-in: Ticket {qr_info['reservation_unit_id']} validated by {validator_user_id}")
+        logger.info(f"Check-in: Ticket {ticket['id']} validated by {validator_user_id}")
 
         return QRValidationResponse(
             is_valid=True,
