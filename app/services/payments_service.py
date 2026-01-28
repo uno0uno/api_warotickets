@@ -17,7 +17,8 @@ from app.database import get_db_connection
 from app.config import settings
 from app.models.payment import (
     Payment, PaymentCreate, PaymentSummary,
-    PaymentIntentResponse, PaymentConfirmation
+    PaymentIntentResponse, PaymentConfirmation,
+    get_payment_method_display_name, get_payment_method_details
 )
 from app.services import reservations_service, email_service
 from app.services.gateways import get_gateway
@@ -306,7 +307,9 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
                     payment.reservation_id,
                     payment.customer_email,
                     payment.amount,
-                    payment.reference
+                    payment.reference,
+                    payment_method_type=result.payment_method_type,
+                    payment_method_data=result.payment_method_data
                 )
             except Exception as e:
                 logger.error(f"Failed to send confirmation email via webhook: {e}")
@@ -551,7 +554,9 @@ async def verify_transaction(transaction_id: str) -> Payment:
                     payment.reservation_id,
                     payment.customer_email,
                     payment.amount,
-                    payment.reference
+                    payment.reference,
+                    payment_method_type=tx_data.get("payment_method_type"),
+                    payment_method_data=tx_data.get("payment_method")
                 )
             except Exception as e:
                 logger.error(f"Failed to send confirmation email: {e}")
@@ -564,7 +569,9 @@ async def send_purchase_confirmation_email(
     reservation_id: str,
     customer_email: str,
     amount: Decimal,
-    reference: str
+    reference: str,
+    payment_method_type: str | None = None,
+    payment_method_data: dict | None = None
 ) -> bool:
     """
     Gather purchase details and send confirmation email.
@@ -653,6 +660,10 @@ async def send_purchase_confirmation_email(
         except Exception as e:
             logger.warning(f"Failed to generate buyer access token: {e}")
 
+        # Obtener nombre amigable del método de pago
+        payment_method_info = get_payment_method_details(payment_method_type, payment_method_data)
+        payment_method_display = payment_method_info.get("full_description", "Pago en línea")
+
         # Send email
         success = await email_service.send_simple_purchase_confirmation(
             to_email=customer_email,
@@ -664,7 +675,7 @@ async def send_purchase_confirmation_email(
             service_fee=total_service_fee,
             total=amount,
             reference=reference,
-            payment_method="Tarjeta de credito/debito",
+            payment_method=payment_method_display,
             access_url=access_url
         )
 
