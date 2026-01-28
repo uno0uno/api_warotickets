@@ -45,6 +45,7 @@ class PaymentMethodType(str, Enum):
     # Puntos y cuotas
     PCOL = "PCOL"  # Puntos Colombia
     BNPL = "BNPL"  # Buy Now Pay Later (Cuotas sin interés)
+    SU_PLUS = "SU_PLUS"  # SU+ Pay (pago a cuotas $35k-$5M COP)
 
     # Otros (legacy/compatibilidad)
     CREDIT_CARD = "CREDIT_CARD"
@@ -64,6 +65,7 @@ PAYMENT_METHOD_DISPLAY_NAMES = {
     "BANCOLOMBIA_COLLECT": "Pago en efectivo (Corresponsal)",
     "PCOL": "Puntos Colombia",
     "BNPL": "Cuotas sin interés Bancolombia",
+    "SU_PLUS": "SU+ Pay (cuotas)",
     "BOTON_BANCOLOMBIA": "Botón Bancolombia",
     "CASH": "Efectivo",
 }
@@ -146,6 +148,12 @@ def get_payment_method_details(method_type: str | None, method_data: dict | None
         points_used = method_data.get("points_used", 0)
         if points_used:
             details = f"{points_used:,} puntos"
+
+    elif method_type_upper == "SU_PLUS":
+        # SU+ Pay - pago a cuotas
+        installments = method_data.get("installments") or method_data.get("extra", {}).get("installments")
+        if installments:
+            details = f"{installments} cuotas"
 
     return {
         "display_name": display_name,
