@@ -144,8 +144,8 @@ async def get_presigned_upload_url(
             ExpiresIn=expires_in
         )
 
-        # Final URL where the file will be accessible
-        final_url = f"{settings.r2_endpoint}/{settings.r2_bucket}/{unique_key}"
+        # Final URL where the file will be accessible (public r2.dev URL)
+        final_url = f"{settings.r2_public_url}/{unique_key}"
 
         return {
             "upload_url": presigned_url,

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     r2_secret_access_key: Optional[str] = Field(default=None, alias='NUXT_PRIVATE_R2_SECRET_ACCESS_KEY')
     r2_endpoint: Optional[str] = Field(default=None, alias='NUXT_PRIVATE_R2_ENDPOINT')
     r2_bucket: str = Field(default='warotickets-assets', alias='NUXT_PRIVATE_R2_BUCKET')
+    r2_public_url: str = Field(default='https://pub-d8ad9fd795034ce2acb372a708fa9538.r2.dev', alias='NUXT_PRIVATE_R2_PUBLIC_URL')
 
     # Encryption
     private_key_encrypter: Optional[str] = Field(default=None, alias='NUXT_PRIVATE_PRIVATE_KEY_ENCRYPTER')
