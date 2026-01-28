@@ -76,6 +76,50 @@ async def upload_image(
         return None
 
 
+async def upload_to_r2(
+    file_content: bytes,
+    filename: str,
+    content_type: str,
+    folder: str = "images"
+) -> Optional[dict]:
+    """
+    Upload file to R2 only (no database save).
+
+    Returns dict with url and key, or None if failed.
+    """
+    try:
+        client = get_r2_client()
+
+        # Generate unique filename
+        ext = filename.split('.')[-1] if '.' in filename else 'jpg'
+        unique_key = f"{folder}/{uuid.uuid4()}.{ext}"
+
+        # Upload to R2
+        client.put_object(
+            Bucket=settings.r2_bucket,
+            Key=unique_key,
+            Body=file_content,
+            ContentType=content_type
+        )
+
+        # Generate public URL (using r2.dev public URL)
+        public_url = f"{settings.r2_public_url}/{unique_key}"
+
+        logger.info(f"Uploaded to R2: {unique_key}")
+
+        return {
+            "url": public_url,
+            "key": unique_key
+        }
+
+    except ClientError as e:
+        logger.error(f"R2 upload error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        return None
+
+
 async def delete_image(image_id: int) -> bool:
     """
     Delete image from R2 and database.
