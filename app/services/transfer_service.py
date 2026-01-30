@@ -14,6 +14,7 @@ from app.services.email_service import (
     send_transfer_accepted_notification,
     send_transfer_received_notification
 )
+from app.services.reservations_service import get_or_create_user
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -64,10 +65,11 @@ async def initiate_transfer(
         if existing:
             raise ValidationError("This ticket already has a pending transfer")
 
-        # Check if recipient exists
+        # Get or create recipient user (ensures to_user_id is never NULL)
+        recipient_id = await get_or_create_user(conn, data.recipient_email.lower())
         recipient = await conn.fetchrow(
-            "SELECT id, name FROM profile WHERE email = $1",
-            data.recipient_email.lower()
+            "SELECT id, name FROM profile WHERE id = $1",
+            recipient_id
         )
 
         # Generate transfer token
@@ -86,7 +88,7 @@ async def initiate_transfer(
         """,
             data.reservation_unit_id,
             user_id,
-            recipient['id'] if recipient else None,
+            recipient['id'],
             f"PENDING|{transfer_token}|{data.recipient_email}|{expires_at.isoformat()}|{data.message or ''}"
         )
 
@@ -118,7 +120,7 @@ async def initiate_transfer(
             id=transfer_row['id'],
             reservation_unit_id=data.reservation_unit_id,
             from_user_id=user_id,
-            to_user_id=str(recipient['id']) if recipient else None,
+            to_user_id=str(recipient['id']),
             to_email=data.recipient_email,
             transfer_token=transfer_token,
             status=TransferStatus.PENDING,
@@ -127,7 +129,7 @@ async def initiate_transfer(
             expires_at=expires_at,
             from_user_name=ticket['owner_name'],
             from_user_email=ticket['owner_email'],
-            to_user_name=recipient['name'] if recipient else None,
+            to_user_name=recipient['name'],
             event_name=ticket['cluster_name'],
             event_date=ticket['start_date'],
             area_name=ticket['area_name'],
@@ -410,7 +412,6 @@ async def accept_transfer_public(transfer_token: str) -> dict:
             return {"success": False, "message": "Esta transferencia ha expirado"}
 
         # Get or create recipient user
-        from app.services.reservations_service import get_or_create_user
         user_id = await get_or_create_user(conn, recipient_email)
 
         # Update transfer log
