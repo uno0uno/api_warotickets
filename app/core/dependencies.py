@@ -3,6 +3,7 @@ from app.core.middleware import SessionContext, TenantContext, get_session_conte
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from typing import Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -149,3 +150,14 @@ class AuthenticatedBuyer:
 def get_authenticated_buyer(request: Request) -> AuthenticatedBuyer:
     """Dependency to get authenticated user WITHOUT tenant context (for buyers)"""
     return AuthenticatedBuyer(request)
+
+
+def get_environment() -> str:
+    """
+    Dependency to get current environment (dev/prod).
+    Reads from APP_ENV environment variable.
+    Returns 'prod' by default if not set.
+    """
+    env = os.getenv("APP_ENV", "prod")
+    # Normalize to only allow 'dev' or 'prod'
+    return "dev" if env == "dev" else "prod"

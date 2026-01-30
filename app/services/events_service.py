@@ -36,6 +36,7 @@ async def get_events(
     tenant_id: str,
     is_active: Optional[bool] = None,
     include_shadowban: bool = False,
+    environment: str = "prod",
     limit: int = 50,
     offset: int = 0
 ) -> List[EventSummary]:
@@ -76,10 +77,10 @@ async def get_events(
                 (SELECT MIN(a.price) FROM areas a WHERE a.cluster_id = c.id) as min_price,
                 (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price
             FROM clusters c
-            WHERE c.profile_id = $1 AND c.tenant_id = $2
+            WHERE c.profile_id = $1 AND c.tenant_id = $2 AND c.environment = $3
         """
-        params = [profile_id, tenant_id]
-        param_idx = 3
+        params = [profile_id, tenant_id, environment]
+        param_idx = 4
 
         if is_active is not None:
             query += f" AND c.is_active = ${param_idx}"
@@ -152,7 +153,7 @@ async def get_event_by_id(event_id: int, profile_id: str, tenant_id: str) -> Opt
         return Event(**event_dict)
 
 
-async def get_event_by_slug(slug: str, tenant_id: Optional[str] = None) -> Optional[Event]:
+async def get_event_by_slug(slug: str, tenant_id: Optional[str] = None, environment: str = "prod") -> Optional[Event]:
     """Get event by slug (public access)"""
     async with get_db_connection(use_transaction=False) as conn:
         query = """
@@ -168,11 +169,12 @@ async def get_event_by_slug(slug: str, tenant_id: Optional[str] = None) -> Optio
             WHERE c.slug_cluster = $1
               AND c.is_active = true
               AND c.shadowban = false
+              AND c.environment = $2
         """
-        params = [slug]
+        params = [slug, environment]
 
         if tenant_id:
-            query += " AND c.tenant_id = $2"
+            query += " AND c.tenant_id = $3"
             params.append(tenant_id)
 
         row = await conn.fetchrow(query, *params)
@@ -213,16 +215,16 @@ async def get_event_by_slug(slug: str, tenant_id: Optional[str] = None) -> Optio
         return Event(**event_dict)
 
 
-async def create_event(profile_id: str, tenant_id: str, data: EventCreate) -> Event:
+async def create_event(profile_id: str, tenant_id: str, data: EventCreate, environment: str = "prod") -> Event:
     """Create a new event"""
     async with get_db_connection() as conn:
         # Generate slug if not provided
         slug = data.slug_cluster or generate_slug(data.cluster_name)
 
-        # Ensure slug is unique within tenant
+        # Ensure slug is unique within tenant and environment
         existing = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE slug_cluster = $1 AND tenant_id = $2",
-            slug, tenant_id
+            "SELECT id FROM clusters WHERE slug_cluster = $1 AND tenant_id = $2 AND environment = $3",
+            slug, tenant_id, environment
         )
         if existing:
             # Append timestamp to make unique
@@ -235,9 +237,9 @@ async def create_event(profile_id: str, tenant_id: str, data: EventCreate) -> Ev
             INSERT INTO clusters (
                 profile_id, tenant_id, cluster_name, description, start_date, end_date,
                 cluster_type, slug_cluster, extra_attributes, legal_info_id,
-                is_active, shadowban, created_at, updated_at
+                is_active, shadowban, environment, created_at, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, false, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, false, $11, NOW(), NOW()
             )
             RETURNING *
         """,
@@ -250,10 +252,11 @@ async def create_event(profile_id: str, tenant_id: str, data: EventCreate) -> Ev
             data.cluster_type,
             slug,
             extra_attrs_json,
-            data.legal_info_id
+            data.legal_info_id,
+            environment
         )
 
-        logger.info(f"Created event: {row['id']} - {data.cluster_name} (tenant: {tenant_id})")
+        logger.info(f"Created event: {row['id']} - {data.cluster_name} (tenant: {tenant_id}, env: {environment})")
 
         event_dict = dict(row)
 
@@ -376,6 +379,7 @@ async def remove_event_image(event_id: int, profile_id: str, tenant_id: str, ima
 
 async def get_public_events(
     tenant_id: Optional[str] = None,
+    environment: str = "prod",
     limit: int = 20,
     offset: int = 0,
     event_type: Optional[str] = None,
@@ -408,11 +412,11 @@ async def get_public_events(
                 (SELECT MIN(a.price) FROM areas a WHERE a.cluster_id = c.id) as min_price,
                 (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price
             FROM clusters c
-            WHERE c.is_active = true AND c.shadowban = false
+            WHERE c.is_active = true AND c.shadowban = false AND c.environment = $1
               AND EXISTS (SELECT 1 FROM areas a WHERE a.cluster_id = c.id)
         """
-        params = []
-        param_idx = 1
+        params = [environment]
+        param_idx = 2
 
         if tenant_id:
             query += f" AND c.tenant_id = ${param_idx}"
@@ -463,7 +467,8 @@ async def create_legal_info(data: LegalInfoCreate) -> LegalInfo:
 async def create_event_with_areas(
     profile_id: str,
     tenant_id: str,
-    data: EventCreateWithAreas
+    data: EventCreateWithAreas,
+    environment: str = "prod"
 ) -> dict:
     """
     Create event with nested areas and auto-generated units in a single transaction.
@@ -473,10 +478,10 @@ async def create_event_with_areas(
         # Generate slug
         slug = data.slug_cluster or generate_slug(data.cluster_name)
 
-        # Ensure unique slug within tenant
+        # Ensure unique slug within tenant and environment
         existing = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE slug_cluster = $1 AND tenant_id = $2",
-            slug, tenant_id
+            "SELECT id FROM clusters WHERE slug_cluster = $1 AND tenant_id = $2 AND environment = $3",
+            slug, tenant_id, environment
         )
         if existing:
             slug = f"{slug}-{int(datetime.now().timestamp())}"
@@ -489,15 +494,15 @@ async def create_event_with_areas(
             INSERT INTO clusters (
                 profile_id, tenant_id, cluster_name, description, start_date, end_date,
                 cluster_type, slug_cluster, extra_attributes, legal_info_id,
-                is_active, shadowban, created_at, updated_at
+                is_active, shadowban, environment, created_at, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, false, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, false, $11, NOW(), NOW()
             )
             RETURNING *
         """,
             profile_id, tenant_id, data.cluster_name, data.description,
             data.start_date, data.end_date, data.cluster_type, slug,
-            extra_attrs_json, data.legal_info_id
+            extra_attrs_json, data.legal_info_id, environment
         )
 
         event_id = event_row['id']
@@ -554,7 +559,7 @@ async def create_event_with_areas(
 
                     units_created += area_data.capacity
 
-        logger.info(f"Created event {event_id} with {areas_created} areas and {units_created} units (tenant: {tenant_id})")
+        logger.info(f"Created event {event_id} with {areas_created} areas and {units_created} units (tenant: {tenant_id}, env: {environment})")
 
         # Build response event
         event_dict = dict(event_row)

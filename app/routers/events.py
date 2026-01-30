@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
-from app.core.dependencies import get_authenticated_user, AuthenticatedUser
+from app.core.dependencies import get_authenticated_user, AuthenticatedUser, get_environment
 from app.models.event import (
     Event, EventCreate, EventUpdate, EventSummary,
     EventImageCreate, EventImage, LegalInfoCreate, LegalInfo
@@ -22,15 +22,18 @@ async def list_events(
     user: AuthenticatedUser = Depends(get_authenticated_user),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    environment: str = Depends(get_environment)
 ):
     """
     List all events for the current user/organizer within their tenant.
+    Automatically filters by environment (dev/prod).
     """
     events = await events_service.get_events(
         profile_id=user.user_id,
         tenant_id=user.tenant_id,
         is_active=is_active,
+        environment=environment,
         limit=limit,
         offset=offset
     )
@@ -54,14 +57,16 @@ async def get_event(
 @router.post("", response_model=Event, status_code=201)
 async def create_event(
     data: EventCreate,
-    user: AuthenticatedUser = Depends(get_authenticated_user)
+    user: AuthenticatedUser = Depends(get_authenticated_user),
+    environment: str = Depends(get_environment)
 ):
     """
     Create a new event.
+    Event is created in the current environment (dev/prod).
 
     Areas should be created separately using POST /areas/event/{cluster_id}
     """
-    event = await events_service.create_event(user.user_id, user.tenant_id, data)
+    event = await events_service.create_event(user.user_id, user.tenant_id, data, environment)
     return event
 
 

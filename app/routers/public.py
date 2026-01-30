@@ -5,7 +5,7 @@ from app.models.event import EventSummary, EventPublic
 from app.models.area import AreaSummary
 from app.services import events_service, areas_service, promotions_service, sale_stages_service
 from app.services import event_images_service
-from app.core.dependencies import get_tenant_id
+from app.core.dependencies import get_tenant_id, get_environment
 
 router = APIRouter()
 
@@ -18,15 +18,18 @@ async def list_public_events(
     start_date_from: Optional[datetime] = Query(None, description="Filter events starting from this date"),
     start_date_to: Optional[datetime] = Query(None, description="Filter events starting before this date"),
     city: Optional[str] = Query(None, description="Filter by city (from extra_attributes)"),
-    tenant_id: Optional[str] = Depends(get_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id),
+    environment: str = Depends(get_environment)
 ):
     """
     List all public active events.
     No authentication required.
     If tenant_id is provided, filters by tenant. Otherwise returns all public events.
+    Automatically filters by environment (dev/prod).
     """
     events = await events_service.get_public_events(
         tenant_id=tenant_id,
+        environment=environment,
         limit=limit,
         offset=offset,
         event_type=event_type,
@@ -40,13 +43,15 @@ async def list_public_events(
 @router.get("/events/{slug}", response_model=EventPublic)
 async def get_public_event(
     slug: str,
-    tenant_id: Optional[str] = Depends(get_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id),
+    environment: str = Depends(get_environment)
 ):
     """
     Get public event details by slug.
     No authentication required.
+    Automatically filters by environment (dev/prod).
     """
-    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id)
+    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id, environment=environment)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -82,14 +87,16 @@ async def get_public_event(
 @router.get("/events/{slug}/areas", response_model=List[AreaSummary])
 async def get_public_event_areas(
     slug: str,
-    tenant_id: Optional[str] = Depends(get_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id),
+    environment: str = Depends(get_environment)
 ):
     """
     Get available areas for a public event.
     Includes current prices with active sale stages.
     No authentication required.
+    Automatically filters by environment (dev/prod).
     """
-    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id)
+    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id, environment=environment)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -100,13 +107,15 @@ async def get_public_event_areas(
 @router.get("/events/{slug}/summary")
 async def get_public_event_summary(
     slug: str,
-    tenant_id: Optional[str] = Depends(get_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id),
+    environment: str = Depends(get_environment)
 ):
     """
     Get summary info for a public event.
     Includes total capacity, availability, and price range.
+    Automatically filters by environment (dev/prod).
     """
-    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id)
+    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id, environment=environment)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -135,14 +144,16 @@ async def get_public_event_summary(
 @router.get("/events/{slug}/promotions")
 async def get_public_event_promotions(
     slug: str,
-    tenant_id: Optional[str] = Depends(get_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id),
+    environment: str = Depends(get_environment)
 ):
     """
     Get active promotions for a public event.
     Shows available promotional packages/combos.
     No authentication required.
+    Automatically filters by environment (dev/prod).
     """
-    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id)
+    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id, environment=environment)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -153,14 +164,16 @@ async def get_public_event_promotions(
 @router.get("/events/{slug}/sale-stages")
 async def get_public_event_sale_stages(
     slug: str,
-    tenant_id: Optional[str] = Depends(get_tenant_id)
+    tenant_id: Optional[str] = Depends(get_tenant_id),
+    environment: str = Depends(get_environment)
 ):
     """
     Get active sale stages for a public event.
     Shows current pricing tiers and discounts.
     No authentication required.
+    Automatically filters by environment (dev/prod).
     """
-    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id)
+    event = await events_service.get_event_by_slug(slug, tenant_id=tenant_id, environment=environment)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
