@@ -92,7 +92,8 @@ async def tenant_detection_middleware(request: Request, call_next):
         # Detect requesting site from headers
         referer = request.headers.get('referer', '')
         origin = request.headers.get('origin', '')
-        host = request.headers.get('host', '')
+        # Use X-Forwarded-Host first (set by nginx/CloudFront), fallback to host
+        host = request.headers.get('x-forwarded-host', '') or request.headers.get('host', '')
 
         requesting_site = None
 
@@ -180,9 +181,11 @@ async def tenant_detection_middleware(request: Request, call_next):
                     content={"error": f"Unknown development site: {requesting_site}"}
                 )
 
-        # Handle api subdomain
-        if requesting_site.startswith('api.'):
-            requesting_site = requesting_site[4:]
+        # Handle api subdomain (dev.api.domain or api.domain -> domain)
+        if requesting_site.startswith('dev.api.'):
+            requesting_site = 'dev.' + requesting_site[8:]  # dev.api.warotickets.com -> dev.warotickets.com
+        elif requesting_site.startswith('api.'):
+            requesting_site = requesting_site[4:]  # api.warotickets.com -> warotickets.com
 
         # Query database for tenant site configuration
         async with get_db_connection(use_transaction=False) as conn:
