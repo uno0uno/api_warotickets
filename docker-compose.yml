@@ -6,8 +6,6 @@ services:
       - "${HOST_PORT:-5002}:8000"
     env_file:
       - .env.${APP_ENV:-prod}
-    environment:
-      - DATABASE_URL=postgresql://${NUXT_PRIVATE_DB_USER}:${NUXT_PRIVATE_DB_PASSWORD}@${NUXT_PRIVATE_DB_HOST}:${NUXT_PRIVATE_DB_PORT}/${NUXT_PRIVATE_DB_NAME}
     networks:
       - warolabs-network
     restart: unless-stopped
