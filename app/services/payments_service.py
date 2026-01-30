@@ -24,6 +24,7 @@ from app.services import reservations_service, email_service
 from app.services.gateways import get_gateway
 from app.services.gateways.base import PaymentData, PaymentStatus
 from app.core.exceptions import PaymentError, ValidationError
+from app.services.discord_service import discord_purchase_service
 
 logger = logging.getLogger(__name__)
 
@@ -683,5 +684,21 @@ async def send_purchase_confirmation_email(
             logger.info(f"Purchase confirmation email sent to {customer_email}")
         else:
             logger.warning(f"Failed to send purchase confirmation to {customer_email}")
+
+        # Send Discord notification
+        if discord_purchase_service:
+            try:
+                total_tickets = sum(t['quantity'] for t in tickets)
+                area_names = ", ".join(t['area_name'] for t in tickets)
+                await discord_purchase_service.notify_new_purchase(
+                    event_name=event_info['cluster_name'],
+                    area_name=area_names,
+                    tickets_count=total_tickets,
+                    total_amount=float(amount),
+                    buyer_email=customer_email,
+                    payment_method=payment_method_display
+                )
+            except Exception as e:
+                logger.error(f"Failed to send Discord notification: {e}")
 
         return success

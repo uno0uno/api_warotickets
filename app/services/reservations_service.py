@@ -12,6 +12,7 @@ from app.models.reservation import (
 )
 from app.services import units_service, pricing_service
 from app.core.exceptions import ValidationError, ReservationError
+from app.services.discord_service import discord_card_service
 
 logger = logging.getLogger(__name__)
 
@@ -536,6 +537,24 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
             """, unit['id'])
 
         logger.info(f"Created reservation {reservation_id} for user {user_id} with {len(data.unit_ids)} units")
+
+        # Send Discord notification for new reservation
+        if discord_card_service:
+            try:
+                event_info = await conn.fetchrow("""
+                    SELECT c.cluster_name, a.area_name
+                    FROM clusters c
+                    JOIN areas a ON a.cluster_id = c.id
+                    WHERE c.id = $1 LIMIT 1
+                """, cluster_id)
+                await discord_card_service.notify_new_reservation(
+                    event_name=event_info['cluster_name'] if event_info else 'Evento',
+                    area_name=event_info['area_name'] if event_info else 'Zona',
+                    tickets_count=len(data.unit_ids),
+                    buyer_email=data.email
+                )
+            except Exception as e:
+                logger.error(f"Failed to send Discord reservation notification: {e}")
 
     # Get full reservation (outside transaction so it can see committed data)
     reservation = await get_reservation_by_id(reservation_id, user_id)

@@ -64,9 +64,10 @@ class Settings(BaseSettings):
     localhost_mapping: str = Field(default="", alias='LOCALHOST_MAPPING')
 
     # Discord webhooks
-    discord_webhook_url: Optional[str] = Field(default=None, alias='DISCORD_WEBHOOK_URL')
+    discord_card_webhook_url: Optional[str] = Field(default=None, alias='DISCORD_CARD_WEBHOOK_URL')
+    discord_purchase_webhook_url: Optional[str] = Field(default=None, alias='DISCORD_PURCHASE_WEBHOOK_URL')
+    discord_transfer_webhook_url: Optional[str] = Field(default=None, alias='DISCORD_TRANSFER_WEBHOOK_URL')
     discord_error_webhook_url: Optional[str] = Field(default=None, alias='DISCORD_ERROR_WEBHOOK_URL')
-    discord_sales_webhook_url: Optional[str] = Field(default=None, alias='DISCORD_SALES_WEBHOOK_URL')
 
     class Config:
         env_file = ".env"

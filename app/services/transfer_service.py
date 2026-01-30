@@ -16,6 +16,7 @@ from app.services.email_service import (
 )
 from app.services.reservations_service import get_or_create_user
 from app.config import settings
+from app.services.discord_service import discord_transfer_service
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,20 @@ async def initiate_transfer(
         display_name = f"{ticket['nomenclature_letter_area'] or ''}-{ticket['nomenclature_number_unit'] or data.reservation_unit_id}".strip('-')
 
         logger.info(f"Transfer initiated: Ticket {data.reservation_unit_id} from {user_id} to {data.recipient_email}")
+
+        # Send Discord notification
+        if discord_transfer_service:
+            try:
+                await discord_transfer_service.notify_new_transfer(
+                    event_name=ticket['cluster_name'],
+                    area_name=ticket['area_name'],
+                    unit_name=display_name,
+                    from_email=ticket['owner_email'],
+                    to_email=data.recipient_email,
+                    from_name=ticket['owner_name']
+                )
+            except Exception as e:
+                logger.error(f"Failed to send Discord transfer notification: {e}")
 
         # Send notification email to recipient
         await send_transfer_notification(
