@@ -89,7 +89,26 @@ async def send_magic_link(data: MagicLinkRequest, request: Request):
         # Generate verification code (6 digits) and token
         code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.now() + timedelta(minutes=MAGIC_LINK_EXPIRY_MINUTES)
+
+        # Calcular expiración: 24h después del último evento del usuario
+        event = await conn.fetchrow("""
+            SELECT c.end_date
+            FROM clusters c
+            JOIN areas a ON c.id = a.cluster_id
+            JOIN units u ON a.id = u.area_id
+            JOIN reservation_units ru ON u.id = ru.unit_id
+            JOIN reservations r ON ru.reservation_id = r.id
+            WHERE r.user_id = $1
+              AND r.status IN ('active', 'confirmed')
+            ORDER BY c.end_date DESC
+            LIMIT 1
+        """, user['id'])
+
+        if event and event['end_date']:
+            expires_at = event['end_date'] + timedelta(hours=24)
+        else:
+            # Fallback: 30 días si no hay evento
+            expires_at = datetime.now() + timedelta(days=30)
 
         # Store verification code in magic_tokens
         await conn.execute("""
@@ -219,21 +238,21 @@ async def verify_magic_link(data: VerifyTokenRequest, request: Request, response
     tenant_id = tenant_context.tenant_id if tenant_context and tenant_context.is_valid else None
 
     async with get_db_connection() as conn:
-        # Find token
+        # Find token (permitimos reutilización - sin verificar used = false)
         token_row = await conn.fetchrow("""
             SELECT mt.*, p.id as user_id, p.name, p.email
             FROM magic_tokens mt
             JOIN profile p ON mt.user_id = p.id
-            WHERE mt.token = $1 AND mt.used = false
+            WHERE mt.token = $1
               AND mt.expires_at > NOW()
         """, data.token)
 
         if not token_row:
             raise HTTPException(status_code=400, detail="Invalid or expired token")
 
-        # Mark token as used
+        # Registrar último uso (tracking sin bloquear reutilización)
         await conn.execute(
-            "UPDATE magic_tokens SET used = true, used_at = NOW() WHERE id = $1",
+            "UPDATE magic_tokens SET used_at = NOW() WHERE id = $1",
             token_row['id']
         )
 
