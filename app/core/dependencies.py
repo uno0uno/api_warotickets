@@ -107,7 +107,9 @@ class AuthenticatedUser:
 
     @property
     def tenant_id(self) -> str:
-        return str(self.session.tenant_id)
+        tid = str(self.session.tenant_id)
+        logger.info(f"AuthenticatedUser.tenant_id: session.tenant_id={self.session.tenant_id}, returning={tid}")
+        return tid
 
     @property
     def email(self) -> str:

@@ -40,6 +40,7 @@ async def get_events(
     offset: int = 0
 ) -> List[EventSummary]:
     """Get all events within a tenant"""
+    logger.info(f"get_events called with tenant_id={tenant_id} (type={type(tenant_id).__name__}), environment={environment}")
     async with get_db_connection(use_transaction=False) as conn:
         query = """
             SELECT
@@ -93,6 +94,7 @@ async def get_events(
         params.extend([limit, offset])
 
         rows = await conn.fetch(query, *params)
+        logger.info(f"get_events returned {len(rows)} events for tenant_id={tenant_id}")
         return [EventSummary(**dict(row)) for row in rows]
 
 

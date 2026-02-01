@@ -178,11 +178,12 @@ class MyTicket(BaseModel):
     event_name: str
     event_slug: str
     event_date: datetime
-    status: str
+    status: str  # confirmed, used, transferred, transferred_out
     qr_code: Optional[str] = None  # Unique token for validation
     qr_data: Optional[dict] = None  # Full QR data JSON
     qr_code_url: Optional[str] = None  # URL to QR image (generated on demand)
     can_transfer: bool = True
+    transferred_to_email: Optional[str] = None  # Email of recipient if transferred out
 
     @field_validator('reservation_id', mode='before')
     @classmethod

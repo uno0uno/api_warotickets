@@ -91,6 +91,7 @@ async def tenant_detection_middleware(request: Request, call_next):
 
         # Get tenant from user session - validate by tenant_member, not tenant_sites
         session_token = request.cookies.get("session-token")
+        logger.info(f"tenant_detection_middleware: path={request.url.path}, session_token={session_token[:20] if session_token else 'None'}...")
         if session_token:
             try:
                 async with get_db_connection(use_transaction=False) as conn:
@@ -106,6 +107,7 @@ async def tenant_detection_middleware(request: Request, call_next):
                     """
                     result = await conn.fetchrow(query, session_token)
                     if result:
+                        logger.info(f"tenant_detection_middleware: found session for tenant_id={result['tenant_id']}, tenant_name={result['tenant_name']}")
                         # Try to get brand_name from tenant_sites if it exists
                         site_result = await conn.fetchrow(
                             "SELECT site, brand_name FROM tenant_sites WHERE tenant_id = $1 AND is_active = true LIMIT 1",

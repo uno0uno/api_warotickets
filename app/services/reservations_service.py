@@ -840,11 +840,19 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
 
     In production, only shows tickets from prod environment events.
     In development, shows all tickets (dev + prod).
+
+    Also includes tickets the user transferred out (status='transferred_out').
     """
     async with get_db_connection(use_transaction=False) as conn:
         # In production, filter to show only prod events
         env_filter = "AND c.environment = 'prod'" if settings.is_production else ""
 
+        # Convert user_id to UUID once for consistency
+        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+
+        logger.info(f"get_my_tickets: user_uuid={user_uuid}, env_filter='{env_filter}'")
+
+        # Query 1: Tickets the user currently owns
         rows = await conn.fetch(f"""
             SELECT
                 ru.id as reservation_unit_id,
@@ -858,7 +866,8 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
                 a.area_name,
                 c.cluster_name as event_name,
                 c.slug_cluster as event_slug,
-                c.start_date as event_date
+                c.start_date as event_date,
+                NULL as transferred_to_email
             FROM reservation_units ru
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
@@ -871,10 +880,13 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
               AND ru.status IN ('confirmed', 'used', 'transferred')
               {env_filter}
             ORDER BY c.start_date ASC
-        """, user_id)
+        """, user_uuid)
 
         tickets = []
+        owned_unit_ids = set()
+
         for row in rows:
+            owned_unit_ids.add(row['reservation_unit_id'])
             ticket_dict = dict(row)
             ticket_dict['unit_display_name'] = f"{row['nomenclature_letter_area'] or ''}-{row['nomenclature_number_unit'] or row['unit_id']}".strip('-')
             ticket_dict['can_transfer'] = row['status'] == 'confirmed'
@@ -883,6 +895,49 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
             if ticket_dict.get('qr_data') and isinstance(ticket_dict['qr_data'], str):
                 ticket_dict['qr_data'] = json.loads(ticket_dict['qr_data'])
             tickets.append(MyTicket(**ticket_dict))
+
+        # Query 2: Tickets the user transferred out (given to others)
+        transferred_out_rows = await conn.fetch("""
+            SELECT DISTINCT ON (ru.id)
+                ru.id as reservation_unit_id,
+                ru.reservation_id,
+                ru.unit_id,
+                'transferred_out' as status,
+                NULL as qr_code,
+                NULL as qr_data,
+                u.nomenclature_letter_area,
+                u.nomenclature_number_unit,
+                a.area_name,
+                c.cluster_name as event_name,
+                c.slug_cluster as event_slug,
+                c.start_date as event_date,
+                p_to.email as transferred_to_email
+            FROM unit_transfer_log t
+            JOIN reservation_units ru ON t.reservation_unit_id = ru.id
+            JOIN units u ON ru.unit_id = u.id
+            JOIN areas a ON u.area_id = a.id
+            JOIN clusters c ON a.cluster_id = c.id
+            JOIN reservations r ON ru.reservation_id = r.id
+            LEFT JOIN profile p_to ON t.to_user_id = p_to.id
+            WHERE t.from_user_id = $1::uuid
+              AND ru.original_user_id != $1::uuid
+              AND t.transfer_reason LIKE 'ACCEPTED%'
+            ORDER BY ru.id, t.transfer_date DESC
+        """, user_id)
+
+        for row in transferred_out_rows:
+            # Skip if already in owned tickets (shouldn't happen, but safety check)
+            if row['reservation_unit_id'] in owned_unit_ids:
+                continue
+
+            ticket_dict = dict(row)
+            ticket_dict['unit_display_name'] = f"{row['nomenclature_letter_area'] or ''}-{row['nomenclature_number_unit'] or row['unit_id']}".strip('-')
+            ticket_dict['can_transfer'] = False  # Can't transfer a ticket you gave away
+            ticket_dict['qr_code_url'] = None
+            tickets.append(MyTicket(**ticket_dict))
+
+        # Sort all tickets by event date
+        tickets.sort(key=lambda t: t.event_date)
 
         return tickets
 
