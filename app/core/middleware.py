@@ -76,151 +76,60 @@ class TenantContext:
 
 async def tenant_detection_middleware(request: Request, call_next):
     """
-    Middleware to detect and validate tenant from request origin
-    Sets request.state.tenant_context for use in endpoints
+    Middleware to detect tenant from user session.
+    Validates that user is a tenant_member (not based on tenant_sites).
+    Sets request.state.tenant_context for use in endpoints.
     """
     try:
         # Skip tenant detection for health checks, docs, webhooks, public endpoints and root endpoint
         skip_paths = ['/health', '/docs', '/redoc', '/openapi.json', '/']
-        skip_prefixes = ['/payments/webhooks', '/public']
+        skip_prefixes = ['/payments/webhooks', '/public', '/cart']
 
         if request.url.path in skip_paths or any(request.url.path.startswith(p) for p in skip_prefixes):
             request.state.tenant_context = TenantContext()
-            response = await call_next(request)
-            return response
+            return await call_next(request)
 
-        # Detect requesting site from headers
-        referer = request.headers.get('referer', '')
-        origin = request.headers.get('origin', '')
-        # Use X-Forwarded-Host first (set by nginx/CloudFront), fallback to host
-        host = request.headers.get('x-forwarded-host', '') or request.headers.get('host', '')
+        # Get tenant from user session - validate by tenant_member, not tenant_sites
+        session_token = request.cookies.get("session-token")
+        if session_token:
+            try:
+                async with get_db_connection(use_transaction=False) as conn:
+                    # Get session with tenant and validate membership
+                    query = """
+                        SELECT s.tenant_id, s.user_id,
+                               t.name as tenant_name, t.slug as tenant_slug, t.email as tenant_email
+                        FROM sessions s
+                        JOIN tenants t ON s.tenant_id = t.id
+                        JOIN tenant_members tm ON tm.tenant_id = t.id AND tm.user_id = s.user_id
+                        WHERE s.id = $1 AND s.expires_at > NOW() AND s.is_active = true
+                        LIMIT 1
+                    """
+                    result = await conn.fetchrow(query, session_token)
+                    if result:
+                        # Try to get brand_name from tenant_sites if it exists
+                        site_result = await conn.fetchrow(
+                            "SELECT site, brand_name FROM tenant_sites WHERE tenant_id = $1 AND is_active = true LIMIT 1",
+                            result['tenant_id']
+                        )
 
-        requesting_site = None
+                        tenant_context = TenantContext({
+                            'tenant_id': result['tenant_id'],
+                            'tenant_name': result['tenant_name'],
+                            'tenant_slug': result['tenant_slug'],
+                            'tenant_email': result['tenant_email'],
+                            'site': site_result['site'] if site_result else None,
+                            'brand_name': site_result['brand_name'] if site_result else result['tenant_name'],
+                            'is_active': True
+                        })
+                        request.state.tenant_context = tenant_context
+                        return await call_next(request)
+            except Exception as e:
+                logger.warning(f"Failed to get tenant from session: {e}")
 
-        # Try to extract site from referer first
-        if referer:
-            url = urlparse(referer)
-            requesting_site = url.netloc
-        elif origin:
-            url = urlparse(origin)
-            requesting_site = url.netloc
-        elif host:
-            requesting_site = host
-
-        if not requesting_site:
-            # Fallback: Try to infer tenant from session token if available
-            session_token = request.cookies.get("session-token")
-            if session_token:
-                try:
-                    async with get_db_connection(use_transaction=False) as conn:
-                        session_tenant_query = """
-                            SELECT ts.site, ts.tenant_id, ts.brand_name, ts.is_active,
-                                   t.name as tenant_name, t.slug as tenant_slug, t.email as tenant_email
-                            FROM sessions s
-                            JOIN tenant_sites ts ON s.tenant_id = ts.tenant_id
-                            JOIN tenants t ON ts.tenant_id = t.id
-                            WHERE s.id = $1 AND s.expires_at > NOW() AND s.is_active = true
-                              AND ts.is_active = true
-                            LIMIT 1
-                        """
-                        session_tenant_result = await conn.fetchrow(session_tenant_query, session_token)
-                        if session_tenant_result:
-                            requesting_site = session_tenant_result['site']
-                except Exception as e:
-                    logger.warning(f"Failed to infer tenant from session: {e}")
-
-            if not requesting_site:
-                logger.warning("No requesting site detected from headers or session")
-                request.state.tenant_context = TenantContext()
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Unable to determine requesting site"}
-                )
-
-        # Handle development environment
-        is_local_dev = (
-            'localhost' in requesting_site or
-            '127.0.0.1' in requesting_site or
-            requesting_site.startswith('192.168.') or
-            requesting_site.startswith('10.') or
-            requesting_site.startswith('172.')
-        )
-
-        if is_local_dev:
-            localhost_mappings = {}
-            port_mappings = {}
-
-            if settings.localhost_mapping:
-                for mapping in settings.localhost_mapping.split(','):
-                    if '=' in mapping:
-                        localhost, tenant = mapping.strip().split('=')
-                        localhost_mappings[localhost] = tenant
-
-                        if ':' in localhost:
-                            port = localhost.split(':')[1]
-                            port_mappings[port] = tenant
-
-            if requesting_site in localhost_mappings:
-                requesting_site = localhost_mappings[requesting_site]
-            elif ':' in requesting_site:
-                port = requesting_site.split(':')[1]
-                if port in port_mappings:
-                    requesting_site = port_mappings[port]
-                else:
-                    logger.warning(f"Unknown local network port: {requesting_site}")
-                    request.state.tenant_context = TenantContext()
-                    return JSONResponse(
-                        status_code=400,
-                        content={"error": f"Unknown development site port: {requesting_site}"}
-                    )
-            else:
-                logger.warning(f"Unknown localhost configuration: {requesting_site}")
-                request.state.tenant_context = TenantContext()
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": f"Unknown development site: {requesting_site}"}
-                )
-
-        # Handle api subdomain (dev.api.domain or api.domain -> domain)
-        if requesting_site.startswith('dev.api.'):
-            requesting_site = 'dev.' + requesting_site[8:]  # dev.api.warotickets.com -> dev.warotickets.com
-        elif requesting_site.startswith('api.'):
-            requesting_site = requesting_site[4:]  # api.warotickets.com -> warotickets.com
-
-        # Query database for tenant site configuration
-        async with get_db_connection(use_transaction=False) as conn:
-            tenant_query = """
-                SELECT
-                    ts.tenant_id,
-                    ts.site,
-                    ts.brand_name,
-                    ts.is_active,
-                    t.name as tenant_name,
-                    t.slug as tenant_slug,
-                    t.email as tenant_email
-                FROM tenant_sites ts
-                JOIN tenants t ON ts.tenant_id = t.id
-                WHERE ts.site = $1 AND ts.is_active = true
-                LIMIT 1
-            """
-
-            tenant_data = await conn.fetchrow(tenant_query, requesting_site)
-
-            if not tenant_data:
-                request.state.tenant_context = TenantContext()
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "error": "Access denied",
-                        "message": f"Site '{requesting_site}' is not authorized to access this API"
-                    }
-                )
-
-            tenant_context = TenantContext(dict(tenant_data))
-            request.state.tenant_context = tenant_context
-
-        response = await call_next(request)
-        return response
+        # No valid session - let the endpoint handle authentication
+        # (session_validation_middleware will handle auth errors)
+        request.state.tenant_context = TenantContext()
+        return await call_next(request)
 
     except Exception as e:
         logger.error(f"Tenant detection middleware error: {e}", exc_info=True)
