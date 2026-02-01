@@ -897,7 +897,7 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
             tickets.append(MyTicket(**ticket_dict))
 
         # Query 2: Tickets the user transferred out (given to others)
-        transferred_out_rows = await conn.fetch("""
+        transferred_out_rows = await conn.fetch(f"""
             SELECT DISTINCT ON (ru.id)
                 ru.id as reservation_unit_id,
                 ru.reservation_id,
@@ -922,6 +922,7 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
             WHERE t.from_user_id = $1::uuid
               AND ru.original_user_id != $1::uuid
               AND t.transfer_reason LIKE 'ACCEPTED%'
+              {env_filter}
             ORDER BY ru.id, t.transfer_date DESC
         """, user_id)
 
