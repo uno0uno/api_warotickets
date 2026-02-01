@@ -149,10 +149,10 @@ async def get_event_reservations(
 ):
     """
     Get all reservations for an event (admin view).
-    Requires organizer ownership of the event.
+    Requires tenant membership for the event.
     """
     reservations = await reservations_service.get_event_reservations(
-        cluster_id, user.user_id, status=status, limit=limit, offset=offset
+        cluster_id, user.tenant_id, status=status, limit=limit, offset=offset
     )
     if reservations is None:
         raise HTTPException(status_code=403, detail="Not authorized for this event")
@@ -170,7 +170,7 @@ async def get_event_reservation_detail(
     Includes customer info, payment, ticket breakdown, and individual units.
     """
     detail = await reservations_service.get_event_reservation_detail(
-        cluster_id, reservation_id, user.user_id
+        cluster_id, reservation_id, user.tenant_id
     )
     if detail is None:
         raise HTTPException(status_code=404, detail="Reservation not found")

@@ -59,18 +59,19 @@ async def get_reservations(
 
 async def get_event_reservations(
     cluster_id: int,
-    profile_id: str,
+    tenant_id: str,
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ) -> Optional[List[dict]]:
-    """Get all reservations for an event (admin view). Verifies organizer ownership."""
+    """Get all reservations for an event (admin view). Verifies tenant membership."""
     async with get_db_connection(use_transaction=False) as conn:
-        # Verify ownership
-        owner = await conn.fetchval(
-            "SELECT profile_id FROM clusters WHERE id = $1", cluster_id
+        # Verify tenant ownership
+        event = await conn.fetchrow(
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            cluster_id, tenant_id
         )
-        if not owner or str(owner) != profile_id:
+        if not event:
             return None
 
         query = """
@@ -120,11 +121,11 @@ async def get_event_reservations(
 async def get_event_reservation_detail(
     cluster_id: int,
     reservation_id: str,
-    profile_id: str
+    tenant_id: str
 ) -> Optional[dict]:
-    """Get full detail of a reservation for admin view. Verifies organizer ownership."""
+    """Get full detail of a reservation for admin view. Verifies tenant membership."""
     async with get_db_connection(use_transaction=False) as conn:
-        # Verify ownership and get reservation + customer info
+        # Verify tenant ownership and get reservation + customer info
         res = await conn.fetchrow("""
             SELECT DISTINCT
                 r.id, r.status, r.reservation_date, r.start_date, r.end_date,
@@ -137,9 +138,9 @@ async def get_event_reservation_detail(
             JOIN units u ON ru.unit_id = u.id
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE r.id = $1 AND c.id = $2 AND c.profile_id = $3
+            WHERE r.id = $1 AND c.id = $2 AND c.tenant_id = $3
             LIMIT 1
-        """, reservation_id, cluster_id, profile_id)
+        """, reservation_id, cluster_id, tenant_id)
 
         if not res:
             return None
