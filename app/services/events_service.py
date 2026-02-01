@@ -32,7 +32,6 @@ def generate_slug(name: str) -> str:
 
 
 async def get_events(
-    profile_id: str,
     tenant_id: str,
     is_active: Optional[bool] = None,
     include_shadowban: bool = False,
@@ -40,7 +39,7 @@ async def get_events(
     limit: int = 50,
     offset: int = 0
 ) -> List[EventSummary]:
-    """Get events for a profile/organizer within a tenant"""
+    """Get all events within a tenant"""
     async with get_db_connection(use_transaction=False) as conn:
         query = """
             SELECT
@@ -77,10 +76,10 @@ async def get_events(
                 (SELECT MIN(a.price) FROM areas a WHERE a.cluster_id = c.id) as min_price,
                 (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price
             FROM clusters c
-            WHERE c.profile_id = $1 AND c.tenant_id = $2 AND c.environment = $3
+            WHERE c.tenant_id = $1 AND c.environment = $2
         """
-        params = [profile_id, tenant_id, environment]
-        param_idx = 4
+        params = [tenant_id, environment]
+        param_idx = 3
 
         if is_active is not None:
             query += f" AND c.is_active = ${param_idx}"
@@ -97,8 +96,8 @@ async def get_events(
         return [EventSummary(**dict(row)) for row in rows]
 
 
-async def get_event_by_id(event_id: int, profile_id: str, tenant_id: str) -> Optional[Event]:
-    """Get event by ID with ownership and tenant validation"""
+async def get_event_by_id(event_id: int, tenant_id: str) -> Optional[Event]:
+    """Get event by ID with tenant validation"""
     async with get_db_connection(use_transaction=False) as conn:
         row = await conn.fetchrow("""
             SELECT
@@ -115,8 +114,8 @@ async def get_event_by_id(event_id: int, profile_id: str, tenant_id: str) -> Opt
                     WHERE a.cluster_id = c.id AND u.status = 'available'
                 ) as tickets_available
             FROM clusters c
-            WHERE c.id = $1 AND c.profile_id = $2 AND c.tenant_id = $3
-        """, event_id, profile_id, tenant_id)
+            WHERE c.id = $1 AND c.tenant_id = $2
+        """, event_id, tenant_id)
 
         if not row:
             return None
@@ -279,13 +278,13 @@ async def create_event(profile_id: str, tenant_id: str, data: EventCreate, envir
         return Event(**event_dict)
 
 
-async def update_event(event_id: int, profile_id: str, tenant_id: str, data: EventUpdate) -> Optional[Event]:
+async def update_event(event_id: int, tenant_id: str, data: EventUpdate) -> Optional[Event]:
     """Update an existing event"""
     async with get_db_connection() as conn:
-        # Verify ownership and tenant
+        # Verify tenant ownership
         existing = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-            event_id, profile_id, tenant_id
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            event_id, tenant_id
         )
         if not existing:
             return None
@@ -306,31 +305,31 @@ async def update_event(event_id: int, profile_id: str, tenant_id: str, data: Eve
             param_idx += 1
 
         if not update_fields:
-            return await get_event_by_id(event_id, profile_id, tenant_id)
+            return await get_event_by_id(event_id, tenant_id)
 
         update_fields.append("updated_at = NOW()")
 
         query = f"""
             UPDATE clusters
             SET {', '.join(update_fields)}
-            WHERE id = ${param_idx} AND profile_id = ${param_idx + 1} AND tenant_id = ${param_idx + 2}
+            WHERE id = ${param_idx} AND tenant_id = ${param_idx + 1}
             RETURNING *
         """
-        params.extend([event_id, profile_id, tenant_id])
+        params.extend([event_id, tenant_id])
 
         await conn.fetchrow(query, *params)
 
-        return await get_event_by_id(event_id, profile_id, tenant_id)
+        return await get_event_by_id(event_id, tenant_id)
 
 
-async def delete_event(event_id: int, profile_id: str, tenant_id: str) -> bool:
+async def delete_event(event_id: int, tenant_id: str) -> bool:
     """Soft delete an event (set is_active = false)"""
     async with get_db_connection() as conn:
         result = await conn.execute("""
             UPDATE clusters
             SET is_active = false, updated_at = NOW()
-            WHERE id = $1 AND profile_id = $2 AND tenant_id = $3
-        """, event_id, profile_id, tenant_id)
+            WHERE id = $1 AND tenant_id = $2
+        """, event_id, tenant_id)
 
         deleted = result == "UPDATE 1"
         if deleted:
@@ -338,13 +337,13 @@ async def delete_event(event_id: int, profile_id: str, tenant_id: str) -> bool:
         return deleted
 
 
-async def add_event_image(event_id: int, profile_id: str, tenant_id: str, data: EventImageCreate) -> Optional[EventImage]:
+async def add_event_image(event_id: int, tenant_id: str, data: EventImageCreate) -> Optional[EventImage]:
     """Add image to event"""
     async with get_db_connection() as conn:
-        # Verify ownership and tenant
+        # Verify tenant ownership
         existing = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-            event_id, profile_id, tenant_id
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            event_id, tenant_id
         )
         if not existing:
             return None
@@ -358,13 +357,13 @@ async def add_event_image(event_id: int, profile_id: str, tenant_id: str, data: 
         return EventImage(**dict(row))
 
 
-async def remove_event_image(event_id: int, profile_id: str, tenant_id: str, image_id: int) -> bool:
+async def remove_event_image(event_id: int, tenant_id: str, image_id: int) -> bool:
     """Remove image from event"""
     async with get_db_connection() as conn:
-        # Verify ownership and tenant
+        # Verify tenant ownership
         existing = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-            event_id, profile_id, tenant_id
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            event_id, tenant_id
         )
         if not existing:
             return False
@@ -388,6 +387,8 @@ async def get_public_events(
     city: Optional[str] = None
 ) -> List[EventSummary]:
     """Get public events (for public listing)"""
+    from app.models.event import FeaturedPromotion
+
     async with get_db_connection(use_transaction=False) as conn:
         query = """
             SELECT
@@ -410,7 +411,91 @@ async def get_public_events(
                     WHERE a.cluster_id = c.id AND u.status = 'available'
                 ) as tickets_available,
                 (SELECT MIN(a.price) FROM areas a WHERE a.cluster_id = c.id) as min_price,
-                (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price
+                (SELECT MAX(a.price) FROM areas a WHERE a.cluster_id = c.id) as max_price,
+                -- Etapa de venta activa
+                (
+                    SELECT ss.stage_name
+                    FROM sale_stages ss
+                    JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
+                    JOIN areas a ON ssa.area_id = a.id
+                    WHERE a.cluster_id = c.id
+                      AND ss.is_active = true
+                      AND ss.start_time <= NOW()
+                      AND (ss.end_time IS NULL OR ss.end_time > NOW())
+                      AND (ss.quantity_available IS NULL OR (ss.quantity_available - ss.quantity_sold) > 0)
+                    ORDER BY ss.priority_order ASC
+                    LIMIT 1
+                ) as active_sale_stage,
+                -- Bundle de la etapa activa (ej: 2 para 2x1)
+                (
+                    SELECT MAX(ssa.quantity)
+                    FROM sale_stages ss
+                    JOIN sale_stage_areas ssa ON ss.id = ssa.sale_stage_id
+                    JOIN areas a ON ssa.area_id = a.id
+                    WHERE a.cluster_id = c.id
+                      AND ss.is_active = true
+                      AND ss.start_time <= NOW()
+                      AND (ss.end_time IS NULL OR ss.end_time > NOW())
+                      AND (ss.quantity_available IS NULL OR (ss.quantity_available - ss.quantity_sold) > 0)
+                      AND ssa.quantity > 1
+                ) as active_stage_bundle,
+                -- Tiene promociones activas
+                EXISTS (
+                    SELECT 1 FROM promotions p
+                    WHERE p.cluster_id = c.id
+                      AND p.is_active = true
+                      AND p.start_time <= NOW()
+                      AND (p.end_time IS NULL OR p.end_time > NOW())
+                      AND (p.quantity_available IS NULL OR (p.quantity_available - p.uses_count) > 0)
+                ) as has_promotions,
+                -- ID de promoción destacada
+                (
+                    SELECT p.id::text
+                    FROM promotions p
+                    WHERE p.cluster_id = c.id
+                      AND p.is_active = true
+                      AND p.start_time <= NOW()
+                      AND (p.end_time IS NULL OR p.end_time > NOW())
+                      AND (p.quantity_available IS NULL OR (p.quantity_available - p.uses_count) > 0)
+                    ORDER BY p.priority_order ASC
+                    LIMIT 1
+                ) as featured_promo_id,
+                -- Nombre de promoción destacada
+                (
+                    SELECT p.promotion_name
+                    FROM promotions p
+                    WHERE p.cluster_id = c.id
+                      AND p.is_active = true
+                      AND p.start_time <= NOW()
+                      AND (p.end_time IS NULL OR p.end_time > NOW())
+                      AND (p.quantity_available IS NULL OR (p.quantity_available - p.uses_count) > 0)
+                    ORDER BY p.priority_order ASC
+                    LIMIT 1
+                ) as featured_promo_name,
+                -- Pricing type de promoción
+                (
+                    SELECT p.pricing_type
+                    FROM promotions p
+                    WHERE p.cluster_id = c.id
+                      AND p.is_active = true
+                      AND p.start_time <= NOW()
+                      AND (p.end_time IS NULL OR p.end_time > NOW())
+                      AND (p.quantity_available IS NULL OR (p.quantity_available - p.uses_count) > 0)
+                    ORDER BY p.priority_order ASC
+                    LIMIT 1
+                ) as featured_promo_pricing_type,
+                -- Pricing value de promoción
+                (
+                    SELECT p.pricing_value
+                    FROM promotions p
+                    WHERE p.cluster_id = c.id
+                      AND p.is_active = true
+                      AND p.start_time <= NOW()
+                      AND (p.end_time IS NULL OR p.end_time > NOW())
+                      AND (p.quantity_available IS NULL OR (p.quantity_available - p.uses_count) > 0)
+                    ORDER BY p.priority_order ASC
+                    LIMIT 1
+                ) as featured_promo_pricing_value
             FROM clusters c
             WHERE c.is_active = true AND c.shadowban = false AND c.environment = $1
               AND EXISTS (SELECT 1 FROM areas a WHERE a.cluster_id = c.id)
@@ -447,7 +532,59 @@ async def get_public_events(
         params.extend([limit, offset])
 
         rows = await conn.fetch(query, *params)
-        return [EventSummary(**dict(row)) for row in rows]
+
+        results = []
+        for row in rows:
+            row_dict = dict(row)
+
+            # Construir featured_promotion si existe
+            if row_dict.get('featured_promo_id'):
+                # Calcular precios de la promoción
+                promo_id = row_dict['featured_promo_id']
+                pricing_type = row_dict.get('featured_promo_pricing_type')
+                pricing_value = float(row_dict.get('featured_promo_pricing_value') or 0)
+
+                # Obtener items de la promoción para calcular precio original
+                promo_items = await conn.fetch("""
+                    SELECT pi.quantity, a.price
+                    FROM promotion_items pi
+                    JOIN areas a ON pi.area_id = a.id
+                    WHERE pi.promotion_id = $1
+                """, promo_id)
+
+                total_tickets = sum(item['quantity'] for item in promo_items)
+                original_price = sum(float(item['price']) * item['quantity'] for item in promo_items)
+
+                # Calcular precio final según tipo de pricing
+                if pricing_type == 'fixed_price':
+                    final_price = pricing_value
+                elif pricing_type == 'fixed_discount':
+                    final_price = max(0, original_price - pricing_value)
+                elif pricing_type == 'percentage':
+                    final_price = original_price * (1 - pricing_value / 100)
+                else:
+                    final_price = original_price
+
+                savings = original_price - final_price
+
+                row_dict['featured_promotion'] = FeaturedPromotion(
+                    id=promo_id,
+                    promotion_name=row_dict.get('featured_promo_name', ''),
+                    total_tickets=total_tickets,
+                    original_price=original_price,
+                    final_price=final_price,
+                    savings=savings if savings > 0 else None
+                )
+            else:
+                row_dict['featured_promotion'] = None
+
+            # Limpiar campos temporales
+            for key in ['featured_promo_id', 'featured_promo_name', 'featured_promo_pricing_type', 'featured_promo_pricing_value']:
+                row_dict.pop(key, None)
+
+            results.append(EventSummary(**row_dict))
+
+        return results
 
 
 async def create_legal_info(data: LegalInfoCreate) -> LegalInfo:
@@ -585,7 +722,6 @@ async def create_event_with_areas(
 
 async def update_event_with_areas(
     event_id: int,
-    profile_id: str,
     tenant_id: str,
     data: EventUpdateWithAreas
 ) -> dict:
@@ -596,10 +732,10 @@ async def update_event_with_areas(
     - Cannot delete areas with sold/reserved units
     """
     async with get_db_connection() as conn:
-        # Verify ownership and tenant
+        # Verify tenant ownership
         existing = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-            event_id, profile_id, tenant_id
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            event_id, tenant_id
         )
         if not existing:
             return None
@@ -623,9 +759,9 @@ async def update_event_with_areas(
                 query = f"""
                     UPDATE clusters
                     SET {', '.join(update_fields)}
-                    WHERE id = ${param_idx} AND profile_id = ${param_idx + 1} AND tenant_id = ${param_idx + 2}
+                    WHERE id = ${param_idx} AND tenant_id = ${param_idx + 1}
                 """
-                params.extend([event_id, profile_id, tenant_id])
+                params.extend([event_id, tenant_id])
                 await conn.execute(query, *params)
 
         areas_updated = 0
@@ -772,7 +908,7 @@ async def update_event_with_areas(
         logger.info(f"Updated event {event_id}: {areas_updated} areas updated, {areas_created} created, {areas_deleted} deleted, {units_created} units created")
 
         # Get updated event
-        event = await get_event_by_id(event_id, profile_id, tenant_id)
+        event = await get_event_by_id(event_id, tenant_id)
 
         return {
             "event": event,

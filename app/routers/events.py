@@ -26,11 +26,10 @@ async def list_events(
     environment: str = Depends(get_environment)
 ):
     """
-    List all events for the current user/organizer within their tenant.
+    List all events within the tenant.
     Automatically filters by environment (dev/prod).
     """
     events = await events_service.get_events(
-        profile_id=user.user_id,
         tenant_id=user.tenant_id,
         is_active=is_active,
         environment=environment,
@@ -48,7 +47,7 @@ async def get_event(
     """
     Get event details by ID.
     """
-    event = await events_service.get_event_by_id(event_id, user.user_id, user.tenant_id)
+    event = await events_service.get_event_by_id(event_id, user.tenant_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     return event
@@ -81,7 +80,7 @@ async def update_event(
 
     Only updates event information. Areas should be managed separately via /areas endpoints.
     """
-    event = await events_service.update_event(event_id, user.user_id, user.tenant_id, data)
+    event = await events_service.update_event(event_id, user.tenant_id, data)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     return event
@@ -95,7 +94,7 @@ async def delete_event(
     """
     Soft delete an event (sets is_active = false).
     """
-    deleted = await events_service.delete_event(event_id, user.user_id, user.tenant_id)
+    deleted = await events_service.delete_event(event_id, user.tenant_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -109,7 +108,7 @@ async def add_event_image(
     """
     Add an image to an event.
     """
-    image = await events_service.add_event_image(event_id, user.user_id, user.tenant_id, data)
+    image = await events_service.add_event_image(event_id, user.tenant_id, data)
     if not image:
         raise HTTPException(status_code=404, detail="Event not found")
     return image
@@ -124,7 +123,7 @@ async def remove_event_image(
     """
     Remove an image from an event.
     """
-    deleted = await events_service.remove_event_image(event_id, user.user_id, user.tenant_id, image_id)
+    deleted = await events_service.remove_event_image(event_id, user.tenant_id, image_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Event or image not found")
 

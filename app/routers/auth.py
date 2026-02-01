@@ -185,13 +185,26 @@ async def verify_code(data: VerifyCodeRequest, request: Request, response: Respo
             token_row['id']
         )
 
-        # Resolve tenant: use context if available, otherwise look up user's membership
-        if not tenant_id:
+        # Resolve tenant: verify user has access to detected tenant, otherwise use their membership
+        resolved_tenant_id = None
+        if tenant_id:
+            # Verify user is a member of the detected tenant
+            is_member = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM tenant_members tm
+                    WHERE tm.user_id = $1 AND tm.tenant_id = $2
+                )
+            """, user['id'], tenant_id)
+            if is_member:
+                resolved_tenant_id = tenant_id
+
+        # If not a member of detected tenant, use their first membership
+        if not resolved_tenant_id:
             member = await conn.fetchrow("""
                 SELECT tm.tenant_id FROM tenant_members tm
                 WHERE tm.user_id = $1 LIMIT 1
             """, user['id'])
-            tenant_id = member['tenant_id'] if member else None
+            resolved_tenant_id = member['tenant_id'] if member else None
 
         # Create session - use UUID as session ID
         session_id = str(uuid.uuid4())
@@ -200,7 +213,7 @@ async def verify_code(data: VerifyCodeRequest, request: Request, response: Respo
         await conn.execute("""
             INSERT INTO sessions (id, user_id, tenant_id, expires_at, created_at, is_active, login_method)
             VALUES ($1, $2, $3, $4, NOW(), true, 'magic_link')
-        """, session_id, user['id'], tenant_id, expires_at)
+        """, session_id, user['id'], resolved_tenant_id, expires_at)
 
         session_token = session_id
 
@@ -215,7 +228,7 @@ async def verify_code(data: VerifyCodeRequest, request: Request, response: Respo
             path="/"
         )
 
-        logger.info(f"User logged in: {user['email']} (tenant: {tenant_id})")
+        logger.info(f"User logged in: {user['email']} (tenant: {resolved_tenant_id})")
 
         return AuthResponse(
             success=True,
@@ -256,13 +269,26 @@ async def verify_magic_link(data: VerifyTokenRequest, request: Request, response
             token_row['id']
         )
 
-        # Resolve tenant: use context if available, otherwise look up user's membership
-        if not tenant_id:
+        # Resolve tenant: verify user has access to detected tenant, otherwise use their membership
+        resolved_tenant_id = None
+        if tenant_id:
+            # Verify user is a member of the detected tenant
+            is_member = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM tenant_members tm
+                    WHERE tm.user_id = $1 AND tm.tenant_id = $2
+                )
+            """, token_row['user_id'], tenant_id)
+            if is_member:
+                resolved_tenant_id = tenant_id
+
+        # If not a member of detected tenant, use their first membership
+        if not resolved_tenant_id:
             member = await conn.fetchrow("""
                 SELECT tm.tenant_id FROM tenant_members tm
                 WHERE tm.user_id = $1 LIMIT 1
             """, token_row['user_id'])
-            tenant_id = member['tenant_id'] if member else None
+            resolved_tenant_id = member['tenant_id'] if member else None
 
         # Create session - use UUID as session ID
         session_id = str(uuid.uuid4())
@@ -271,7 +297,7 @@ async def verify_magic_link(data: VerifyTokenRequest, request: Request, response
         await conn.execute("""
             INSERT INTO sessions (id, user_id, tenant_id, expires_at, created_at, is_active, login_method)
             VALUES ($1, $2, $3, $4, NOW(), true, 'magic_link')
-        """, session_id, token_row['user_id'], tenant_id, expires_at)
+        """, session_id, token_row['user_id'], resolved_tenant_id, expires_at)
 
         session_token = session_id
 
@@ -286,7 +312,7 @@ async def verify_magic_link(data: VerifyTokenRequest, request: Request, response
             path="/"
         )
 
-        logger.info(f"User logged in via token: {token_row['email']} (tenant: {tenant_id})")
+        logger.info(f"User logged in via token: {token_row['email']} (tenant: {resolved_tenant_id})")
 
         return AuthResponse(
             success=True,

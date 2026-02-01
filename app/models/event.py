@@ -127,6 +127,16 @@ class Event(EventBase):
         from_attributes = True
 
 
+class FeaturedPromotion(BaseModel):
+    """Promoción destacada para listados"""
+    id: str
+    promotion_name: str
+    total_tickets: int = 0
+    original_price: Optional[float] = None
+    final_price: Optional[float] = None
+    savings: Optional[float] = None
+
+
 class EventSummary(BaseModel):
     """Schema resumido para listados"""
     id: int
@@ -144,6 +154,11 @@ class EventSummary(BaseModel):
     total_checked_in: Optional[int] = None
     min_price: Optional[float] = None
     max_price: Optional[float] = None
+    # Nuevos campos para promociones y etapas
+    active_sale_stage: Optional[str] = None
+    active_stage_bundle: Optional[int] = None  # ej: 2 para "2x1"
+    has_promotions: bool = False
+    featured_promotion: Optional[FeaturedPromotion] = None
 
     class Config:
         from_attributes = True
