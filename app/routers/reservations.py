@@ -96,6 +96,9 @@ async def get_my_tickets(
     """
     Get all confirmed tickets for the current user (buyer or organizer).
     Does NOT require tenant - any authenticated user can see their tickets.
+
+    Environment filtering is automatic: production shows only prod events,
+    development shows all events.
     """
     tickets = await reservations_service.get_my_tickets(buyer.user_id)
     return tickets
@@ -108,6 +111,9 @@ async def get_my_invoices(
     """
     Get all payment invoices for the current user.
     Does NOT require tenant - any authenticated user can see their invoices.
+
+    Environment filtering is automatic: production shows only prod events,
+    development shows all events.
     """
     invoices = await reservations_service.get_my_invoices(buyer.user_id)
     return invoices

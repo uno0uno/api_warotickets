@@ -13,6 +13,7 @@ from app.models.reservation import (
 from app.services import units_service, pricing_service
 from app.core.exceptions import ValidationError, ReservationError
 from app.services.discord_service import discord_card_service
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -835,9 +836,16 @@ async def expire_pending_reservations() -> int:
 
 
 async def get_my_tickets(user_id: str) -> List[MyTicket]:
-    """Get all confirmed tickets for a user (including transferred tickets)"""
+    """Get all confirmed tickets for a user (including transferred tickets).
+
+    In production, only shows tickets from prod environment events.
+    In development, shows all tickets (dev + prod).
+    """
     async with get_db_connection(use_transaction=False) as conn:
-        rows = await conn.fetch("""
+        # In production, filter to show only prod events
+        env_filter = "AND c.environment = 'prod'" if settings.is_production else ""
+
+        rows = await conn.fetch(f"""
             SELECT
                 ru.id as reservation_unit_id,
                 ru.reservation_id,
@@ -861,6 +869,7 @@ async def get_my_tickets(user_id: str) -> List[MyTicket]:
                 OR (r.user_id = $1 AND ru.original_user_id IS NULL)
               )
               AND ru.status IN ('confirmed', 'used', 'transferred')
+              {env_filter}
             ORDER BY c.start_date ASC
         """, user_id)
 
@@ -950,10 +959,17 @@ async def _track_reservation_unit_status(
 
 
 async def get_my_invoices(user_id: str) -> list:
-    """Get all payment invoices for a buyer, with ticket breakdown per area."""
+    """Get all payment invoices for a buyer, with ticket breakdown per area.
+
+    In production, only shows invoices from prod environment events.
+    In development, shows all invoices (dev + prod).
+    """
     async with get_db_connection(use_transaction=False) as conn:
+        # In production, filter to show only prod events
+        env_filter = "AND c.environment = 'prod'" if settings.is_production else ""
+
         # Get all payments for the user
-        payments = await conn.fetch("""
+        payments = await conn.fetch(f"""
             SELECT DISTINCT
                 p.id as payment_id,
                 p.reference,
@@ -975,6 +991,7 @@ async def get_my_invoices(user_id: str) -> list:
             JOIN areas a ON u.area_id = a.id
             JOIN clusters c ON a.cluster_id = c.id
             WHERE r.user_id = $1
+            {env_filter}
             ORDER BY p.payment_date DESC
         """, uuid.UUID(user_id))
 
