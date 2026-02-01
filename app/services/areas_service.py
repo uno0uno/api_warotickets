@@ -66,10 +66,10 @@ async def get_areas_by_event(
 ) -> List[AreaSummary]:
     """Get all areas for an event with availability stats"""
     async with get_db_connection(use_transaction=False) as conn:
-        # Verify ownership and tenant
+        # Verify tenant ownership (any tenant member can view)
         event = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-            cluster_id, profile_id, tenant_id
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            cluster_id, tenant_id
         )
         if not event:
             return []
@@ -131,8 +131,8 @@ async def get_area_by_id(
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'sold') as units_sold
             FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND a.cluster_id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
-        """, area_id, cluster_id, profile_id, tenant_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND c.tenant_id = $3
+        """, area_id, cluster_id, tenant_id)
 
         if not row:
             return None
@@ -152,10 +152,10 @@ async def create_area(
 ) -> Area:
     """Create a new area for an event"""
     async with get_db_connection() as conn:
-        # Verify event ownership and tenant
+        # Verify tenant ownership (any tenant member can create areas)
         event = await conn.fetchrow(
-            "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-            cluster_id, profile_id, tenant_id
+            "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+            cluster_id, tenant_id
         )
         if not event:
             raise ValidationError("Event not found or access denied")
@@ -225,8 +225,8 @@ async def update_area(
         existing = await conn.fetchrow("""
             SELECT a.id FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND a.cluster_id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
-        """, area_id, cluster_id, profile_id, tenant_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND c.tenant_id = $3
+        """, area_id, cluster_id, tenant_id)
 
         if not existing:
             return None
@@ -281,8 +281,8 @@ async def delete_area(
                 (SELECT COUNT(*) FROM units u WHERE u.area_id = a.id AND u.status = 'reserved') as reserved_count
             FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
-            WHERE a.id = $1 AND a.cluster_id = $2 AND c.profile_id = $3 AND c.tenant_id = $4
-        """, area_id, cluster_id, profile_id, tenant_id)
+            WHERE a.id = $1 AND a.cluster_id = $2 AND c.tenant_id = $3
+        """, area_id, cluster_id, tenant_id)
 
         if not check:
             return False

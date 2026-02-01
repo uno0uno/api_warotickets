@@ -26,10 +26,10 @@ def _parse_json_field(value):
 
 
 async def verify_cluster_ownership(conn, cluster_id: int, profile_id: str, tenant_id: str) -> bool:
-    """Verifica que el cluster pertenece al organizador y tenant"""
+    """Verifica que el cluster pertenece al tenant (cualquier miembro puede acceder)"""
     row = await conn.fetchrow(
-        "SELECT id FROM clusters WHERE id = $1 AND profile_id = $2 AND tenant_id = $3",
-        cluster_id, profile_id, tenant_id
+        "SELECT id FROM clusters WHERE id = $1 AND tenant_id = $2",
+        cluster_id, tenant_id
     )
     return row is not None
 

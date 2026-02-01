@@ -155,9 +155,11 @@ def get_authenticated_buyer(request: Request) -> AuthenticatedBuyer:
 def get_environment() -> str:
     """
     Dependency to get current environment (dev/prod).
-    Reads from APP_ENV environment variable.
+    Reads from settings.app_env (loaded from .env file).
     Returns 'prod' by default if not set.
     """
-    env = os.getenv("APP_ENV", "prod")
+    from app.config import settings
+    env = settings.app_env
+    logger.info(f"get_environment() called - APP_ENV from settings: '{env}'")
     # Normalize to only allow 'dev' or 'prod'
     return "dev" if env == "dev" else "prod"
