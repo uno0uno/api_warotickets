@@ -59,9 +59,29 @@ async def initiate_transfer(
 
         # Check for existing pending transfer
         existing = await conn.fetchrow("""
-            SELECT id FROM unit_transfer_log
+            SELECT id, transfer_reason FROM unit_transfer_log
             WHERE reservation_unit_id = $1 AND transfer_reason LIKE 'PENDING|%'
         """, data.reservation_unit_id)
+
+        if existing:
+            # Check if it's actually expired
+            try:
+                parts = existing['transfer_reason'].split('|')
+                if len(parts) >= 4:
+                    expires_at = datetime.fromisoformat(parts[3])
+                    if datetime.now() > expires_at:
+                        # Expired! Clean it up and allow new transfer
+                        await conn.execute("""
+                            UPDATE unit_transfer_log
+                            SET transfer_reason = REPLACE(transfer_reason, 'PENDING|', 'EXPIRED|')
+                            WHERE id = $1
+                        """, existing['id'])
+                        
+                        logger.info(f"Auto-expired pending transfer {existing['id']} during new initiation")
+                        existing = None # Clear existing so we proceed
+            except Exception as e:
+                logger.error(f"Error checking pending transfer expiration: {e}")
+                # Fallback to blocking if we can't parse
 
         if existing:
             raise ValidationError("This ticket already has a pending transfer")
@@ -204,6 +224,26 @@ async def resend_transfer(user_id: str, reservation_unit_id: int) -> bool:
         message = parts[4] if len(parts) > 4 else None
 
         expires_at = datetime.fromisoformat(expires_at_str)
+
+        # Check if expired or expiring soon (e.g. within 4 hours)
+        # If so, extend it
+        if expires_at < now + timedelta(hours=4):
+            new_expires_at = now + timedelta(hours=TRANSFER_EXPIRY_HOURS)
+            logger.info(f"Transfer {reservation_unit_id} expired or close to expiry. Extending to {new_expires_at}")
+            
+            # Update reason with new expiration
+            # Format: 'PENDING|token|email|expires_at|message'
+            new_reason_parts = parts.copy()
+            new_reason_parts[3] = new_expires_at.isoformat()
+            new_reason = "|".join(new_reason_parts)
+            
+            await conn.execute("""
+                UPDATE unit_transfer_log
+                SET transfer_reason = $2, transfer_date = NOW()
+                WHERE id = $1
+            """, transfer['id'], new_reason)
+            
+            expires_at = new_expires_at
 
         display_name = f"{transfer['nomenclature_letter_area'] or ''}-{transfer['nomenclature_number_unit'] or reservation_unit_id}".strip('-')
 
