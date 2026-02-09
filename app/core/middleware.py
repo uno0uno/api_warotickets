@@ -83,7 +83,7 @@ async def tenant_detection_middleware(request: Request, call_next):
     try:
         # Skip tenant detection for health checks, docs, webhooks, public endpoints and root endpoint
         skip_paths = ['/health', '/docs', '/redoc', '/openapi.json', '/']
-        skip_prefixes = ['/payments/webhooks', '/public', '/cart']
+        skip_prefixes = ['/payments/webhooks', '/public', '/cart', '/invitations/accept']
 
         if request.url.path in skip_paths or any(request.url.path.startswith(p) for p in skip_prefixes):
             request.state.tenant_context = TenantContext()
@@ -163,7 +163,8 @@ async def session_validation_middleware(request: Request, call_next):
         public_endpoints = [
             '/docs', '/openapi.json', '/health',
             '/auth/sign-in-magic-link', '/auth/verify-code', '/auth/verify',
-            '/transfers/accept-public'
+            '/transfers/accept-public',
+            '/invitations/accept'
         ]
 
         public_prefixes = ['/public', '/webhooks']

@@ -90,25 +90,8 @@ async def send_magic_link(data: MagicLinkRequest, request: Request):
         code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
         token = secrets.token_urlsafe(32)
 
-        # Calcular expiración: 24h después del último evento del usuario
-        event = await conn.fetchrow("""
-            SELECT c.end_date
-            FROM clusters c
-            JOIN areas a ON c.id = a.cluster_id
-            JOIN units u ON a.id = u.area_id
-            JOIN reservation_units ru ON u.id = ru.unit_id
-            JOIN reservations r ON ru.reservation_id = r.id
-            WHERE r.user_id = $1
-              AND r.status IN ('active', 'confirmed')
-            ORDER BY c.end_date DESC
-            LIMIT 1
-        """, user['id'])
-
-        if event and event['end_date']:
-            expires_at = event['end_date'] + timedelta(hours=24)
-        else:
-            # Fallback: 30 días si no hay evento
-            expires_at = datetime.now() + timedelta(days=30)
+        # Código de verificación expira en 15 minutos
+        expires_at = datetime.now() + timedelta(minutes=MAGIC_LINK_EXPIRY_MINUTES)
 
         # Store verification code in magic_tokens
         await conn.execute("""
@@ -385,6 +368,7 @@ class User(BaseModel):
     id: str
     email: str
     name: Optional[str] = None
+    role: Optional[str] = None
     createdAt: Optional[datetime] = None
 
 
@@ -434,25 +418,32 @@ async def get_session(request: Request, response: Response):
             session_token
         )
 
-        # Get tenant info if tenant_id exists
+        # Get tenant info and user role in a single query
         current_tenant = None
+        user_role = None
         if session_result['tenant_id']:
-            tenant_result = await conn.fetchrow(
-                "SELECT id, name, slug FROM tenants WHERE id = $1",
-                session_result['tenant_id']
-            )
+            tenant_result = await conn.fetchrow("""
+                SELECT t.id, t.name, t.slug,
+                       COALESCE(tmr.site_role_name, tm.role) as user_role
+                FROM tenants t
+                LEFT JOIN tenant_members tm ON tm.tenant_id = t.id AND tm.user_id = $2
+                LEFT JOIN tenant_member_roles tmr ON tmr.tenant_member_id = tm.id AND tmr.is_active = true
+                WHERE t.id = $1
+            """, session_result['tenant_id'], session_result['user_id'])
             if tenant_result:
                 current_tenant = Tenant(
                     id=str(tenant_result['id']),
                     name=tenant_result['name'],
                     slug=tenant_result['slug']
                 )
+                user_role = tenant_result['user_role']
 
         # Build response
         user = User(
             id=str(session_result['user_id']),
             email=session_result['email'],
             name=session_result['name'],
+            role=user_role,
             createdAt=session_result['user_created_at']
         )
 

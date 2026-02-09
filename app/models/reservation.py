@@ -39,6 +39,7 @@ class ReservationCreate(BaseModel):
     promotion_id: Optional[str] = Field(None, description="ID de la promocion")
     promo_unit_ids: Optional[List[int]] = Field(default_factory=list, description="IDs de unidades que aplican a la promocion")
     email: EmailStr = Field(..., description="Correo electronico del cliente")
+    promoter_code_id: Optional[str] = Field(None, description="ID del codigo de promotor")
 
 
 class ReservationUpdate(BaseModel):

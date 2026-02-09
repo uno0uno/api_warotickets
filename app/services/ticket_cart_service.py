@@ -30,13 +30,24 @@ async def get_tenant_id(conn, cluster_id: int) -> str:
 async def get_or_create_cart(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    cluster_id: Optional[int] = None
+    cluster_id: Optional[int] = None,
+    promoter_code: Optional[str] = None
 ) -> Optional[dict]:
     """Get existing active cart or create new one"""
     if not session_id and not user_id:
         return None
 
     async with get_db_connection() as conn:
+        # Validate promoter code if provided
+        promoter_code_id = None
+        if promoter_code:
+            code_record = await conn.fetchrow("""
+                SELECT id FROM promoter_codes
+                WHERE code = $1 AND is_active = true
+            """, promoter_code)
+            if code_record:
+                promoter_code_id = str(code_record['id'])
+
         # Try to find existing active cart
         query = """
             SELECT tc.*, c.cluster_name, c.slug_cluster
@@ -65,6 +76,18 @@ async def get_or_create_cart(
         cart = await conn.fetchrow(query, *params)
 
         if cart:
+            # Update promoter_code_id if new code provided (last-click attribution)
+            if promoter_code_id:
+                await conn.execute("""
+                    UPDATE ticket_carts
+                    SET promoter_code_id = $1, updated_at = NOW()
+                    WHERE id = $2
+                """, promoter_code_id, cart['id'])
+                # Update local dict
+                cart_dict = dict(cart)
+                cart_dict['promoter_code_id'] = promoter_code_id
+                return cart_dict
+
             return dict(cart)
 
         # Create new cart if cluster_id provided
@@ -72,10 +95,10 @@ async def get_or_create_cart(
             tenant_id = await get_tenant_id(conn, cluster_id)
 
             row = await conn.fetchrow("""
-                INSERT INTO ticket_carts (tenant_id, session_id, user_id, cluster_id, status)
-                VALUES ($1, $2, $3, $4, 'active')
+                INSERT INTO ticket_carts (tenant_id, session_id, user_id, cluster_id, promoter_code_id, status)
+                VALUES ($1, $2, $3, $4, $5, 'active')
                 RETURNING *
-            """, tenant_id, session_id, user_id, cluster_id)
+            """, tenant_id, session_id, user_id, cluster_id, promoter_code_id)
 
             cart_dict = dict(row)
 
@@ -815,6 +838,7 @@ async def checkout(
                 promotion_code = promo['promotion_code']
 
         cluster_id = cart['cluster_id']
+        promoter_code_id = str(cart['promoter_code_id']) if cart.get('promoter_code_id') else None
 
     # Create reservation using existing service
     from app.models.reservation import ReservationCreate
@@ -825,7 +849,8 @@ async def checkout(
         email=customer_email,
         promotion_code=promotion_code,
         promotion_id=promotion_id,
-        promo_unit_ids=promo_unit_ids
+        promo_unit_ids=promo_unit_ids,
+        promoter_code_id=promoter_code_id
     )
 
     reservation_response = await reservations_service.create_reservation(

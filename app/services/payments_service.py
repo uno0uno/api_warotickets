@@ -302,6 +302,19 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
             await reservations_service.confirm_reservation(payment.reservation_id)
             logger.info(f"Confirmed reservation {payment.reservation_id}")
 
+            # Register commission if promoter code exists (non-blocking)
+            try:
+                from app.services import commissions_service
+                commission = await commissions_service.record_commission(
+                    payment_id=payment.id,
+                    reservation_id=payment.reservation_id
+                )
+                if commission:
+                    logger.info(f"Commission recorded: {commission['id']} for ${commission['commission_amount']}")
+            except Exception as e:
+                logger.error(f"Failed to record commission: {e}")
+                # Does NOT block sale completion
+
             # Send purchase confirmation email
             try:
                 await send_purchase_confirmation_email(
@@ -437,6 +450,18 @@ async def check_payment_status(payment_id: int) -> Payment:
                     await reservations_service.confirm_reservation(payment.reservation_id)
                     logger.info(f"Confirmed reservation {payment.reservation_id} via polling")
 
+                    # Register commission if promoter code exists (non-blocking)
+                    try:
+                        from app.services import commissions_service
+                        commission = await commissions_service.record_commission(
+                            payment_id=payment_id,
+                            reservation_id=payment.reservation_id
+                        )
+                        if commission:
+                            logger.info(f"Commission recorded: {commission['id']} for ${commission['commission_amount']}")
+                    except Exception as e:
+                        logger.error(f"Failed to record commission via polling: {e}")
+
             payment = await get_payment_by_id(payment_id)
 
     return payment
@@ -504,6 +529,17 @@ async def verify_transaction(transaction_id: str) -> Payment:
         # (handles cases where reservation expired during payment)
         if payment.status == 'approved':
             await reservations_service.confirm_reservation(payment.reservation_id)
+            # Ensure commission is recorded (idempotent)
+            try:
+                from app.services import commissions_service
+                commission = await commissions_service.record_commission(
+                    payment_id=payment.id,
+                    reservation_id=payment.reservation_id
+                )
+                if commission:
+                    logger.info(f"Commission recorded (idempotent): {commission['id']} for ${commission['commission_amount']}")
+            except Exception as e:
+                logger.error(f"Failed to record commission (idempotent): {e}")
         return payment
 
     # Map Wompi status to our status
@@ -548,6 +584,18 @@ async def verify_transaction(transaction_id: str) -> Payment:
         if new_status == "approved":
             await reservations_service.confirm_reservation(payment.reservation_id)
             logger.info(f"Confirmed reservation {payment.reservation_id} via verify_transaction")
+
+            # Register commission if promoter code exists (non-blocking)
+            try:
+                from app.services import commissions_service
+                commission = await commissions_service.record_commission(
+                    payment_id=payment.id,
+                    reservation_id=payment.reservation_id
+                )
+                if commission:
+                    logger.info(f"Commission recorded: {commission['id']} for ${commission['commission_amount']} via verify_transaction")
+            except Exception as e:
+                logger.error(f"Failed to record commission via verify_transaction: {e}")
 
             # Send purchase confirmation email
             try:

@@ -87,8 +87,10 @@ app.middleware("http")(tenant_detection_middleware)   # runs first
 from app.routers import (
     events, areas, units, public,
     sale_stages, promotions, reservations, payments,
-    qr, transfers, auth, tenants, ticket_cart, uploads
+    qr, transfers, auth, tenants, ticket_cart, uploads,
+    promoters, invitations
 )
+from app.routers.admin import promoters as admin_promoters, commissions as admin_commissions
 
 # Authentication (public endpoints)
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -124,6 +126,14 @@ app.include_router(ticket_cart.router, prefix="/cart", tags=["cart"])
 
 # Uploads (requires auth)
 app.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
+
+# Promoter system (requires auth)
+app.include_router(promoters.router, prefix="/promoters", tags=["promoters"])
+app.include_router(admin_promoters.router, tags=["admin-promoters"])
+app.include_router(admin_commissions.router, tags=["admin-commissions"])
+
+# Invitations (requires auth)
+app.include_router(invitations.router, tags=["invitations"])
 
 @app.get("/")
 async def root():

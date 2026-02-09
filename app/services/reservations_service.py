@@ -270,6 +270,38 @@ async def get_event_reservation_detail(
                 "installments": method_data.get('installments') if isinstance(method_data, dict) else None,
             }
 
+        # Get commission info (if promoter sale)
+        commission_info = None
+        commission = await conn.fetchrow("""
+            SELECT oc.id, oc.commission_percentage, oc.commission_amount,
+                   oc.total_base_price, oc.tickets_count, oc.status,
+                   oc.created_at, oc.paid_at, oc.payment_reference,
+                   pc.code as promoter_code,
+                   pr.name as promoter_name, pr.email as promoter_email
+            FROM order_commissions oc
+            JOIN promoter_codes pc ON pc.id = oc.promoter_code_id
+            JOIN tenant_members tm ON tm.id = oc.tenant_member_id
+            JOIN profile pr ON pr.id = tm.user_id
+            WHERE oc.reservation_id = $1
+            LIMIT 1
+        """, reservation_id)
+
+        if commission:
+            commission_info = {
+                "id": str(commission['id']),
+                "promoter_code": commission['promoter_code'],
+                "promoter_name": commission['promoter_name'],
+                "promoter_email": commission['promoter_email'],
+                "commission_percentage": float(commission['commission_percentage']),
+                "commission_amount": float(commission['commission_amount']),
+                "total_base_price": float(commission['total_base_price']),
+                "tickets_count": commission['tickets_count'],
+                "status": commission['status'],
+                "created_at": commission['created_at'].isoformat() if commission['created_at'] else None,
+                "paid_at": commission['paid_at'].isoformat() if commission['paid_at'] else None,
+                "payment_reference": commission['payment_reference'],
+            }
+
         return {
             "id": str(res['id']),
             "status": res['status'],
@@ -284,6 +316,7 @@ async def get_event_reservation_detail(
             "tickets": tickets,
             "units": unit_list,
             "payment": payment_info,
+            "commission": commission_info,
         }
 
 
@@ -447,12 +480,12 @@ async def create_reservation(user_id: Optional[str], data: ReservationCreate) ->
         reservation_row = await conn.fetchrow("""
             INSERT INTO reservations (
                 user_id, reservation_date, start_date, end_date,
-                status, extra_attributes, updated_at
+                status, extra_attributes, promoter_code_id, updated_at
             ) VALUES (
-                $1, NOW(), $2, $3, 'pending', $4, NOW()
+                $1, NOW(), $2, $3, 'pending', $4, $5, NOW()
             )
             RETURNING *
-        """, user_id, event_start, event_end, json.dumps(data.model_dump()))
+        """, user_id, event_start, event_end, json.dumps(data.model_dump()), data.promoter_code_id)
 
         reservation_id = str(reservation_row['id'])
 

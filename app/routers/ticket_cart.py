@@ -36,7 +36,8 @@ async def create_or_get_cart(
     data: TicketCartCreate,
     x_session_id: Optional[str] = Header(None),
     session_id: Optional[str] = Cookie(None),
-    user_id: Optional[str] = Header(None, alias="x-user-id")
+    user_id: Optional[str] = Header(None, alias="x-user-id"),
+    promoter_ref: Optional[str] = Header(None, alias="x-promoter-ref")
 ):
     """Create new cart or get existing one for the event"""
     sid = get_session_id(x_session_id, session_id)
@@ -44,7 +45,8 @@ async def create_or_get_cart(
     cart = await ticket_cart_service.get_or_create_cart(
         session_id=sid,
         user_id=user_id,
-        cluster_id=data.cluster_id
+        cluster_id=data.cluster_id,
+        promoter_code=promoter_ref
     )
 
     if not cart:
