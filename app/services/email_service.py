@@ -1,12 +1,22 @@
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 import boto3
 from botocore.exceptions import ClientError
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+BOGOTA_TZ = ZoneInfo('America/Bogota')
+
+
+def _fmt_dt(dt: datetime, fmt: str) -> str:
+    """Format a datetime in America/Bogota timezone. Handles naive datetimes by assuming UTC."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BOGOTA_TZ).strftime(fmt)
 
 
 def get_ses_client():
@@ -71,8 +81,8 @@ async def send_transfer_notification(
     try:
         accept_url = f"{settings.frontend_url}/transfers/accept?token={transfer_token}"
 
-        event_date_str = event_date.strftime('%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
-        expires_str = expires_at.strftime('%d/%m/%Y a las %H:%M') if expires_at else '48 horas'
+        event_date_str = _fmt_dt(event_date, '%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
+        expires_str = _fmt_dt(expires_at, '%d/%m/%Y a las %H:%M') if expires_at else '48 horas'
 
         text_body = f"""Hola!
 
@@ -135,7 +145,7 @@ async def send_purchase_confirmation(
     reservation_id: int
 ) -> bool:
     """Send purchase confirmation email"""
-    event_date_str = event_date.strftime("%d de %B, %Y - %H:%M") if event_date else "Por confirmar"
+    event_date_str = _fmt_dt(event_date, "%d de %B, %Y - %H:%M") if event_date else "Por confirmar"
     my_tickets_url = f"{settings.frontend_url}/my-tickets"
 
     tickets_html = ""
@@ -287,7 +297,7 @@ async def send_transfer_received_notification(
 ) -> bool:
     """Notify recipient that they received a ticket via transfer (plain text)"""
     try:
-        event_date_str = event_date.strftime('%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
+        event_date_str = _fmt_dt(event_date, '%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
         my_tickets_url = f"{settings.frontend_url}/mis-boletas"
 
         text_body = f"""Hola!
@@ -366,7 +376,7 @@ async def send_simple_purchase_confirmation(
     try:
         # Format date
         if event_date:
-            event_date_str = event_date.strftime('%d de %B de %Y a las %H:%M')
+            event_date_str = _fmt_dt(event_date, '%d de %B de %Y a las %H:%M')
         else:
             event_date_str = 'Por confirmar'
 
