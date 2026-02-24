@@ -207,6 +207,8 @@ class WompiGateway(BaseGateway):
 
         logger.info(f"Wompi webhook: payment_link_id={payment_link_id}, status={status}, tx_id={transaction_id}")
 
+        customer_email, customer_data, billing_data = self._extract_customer_data(transaction)
+
         return WebhookResult(
             success=True,
             reference=payment_link_id,  # Use payment_link_id as reference (matches our gateway_order_id)
@@ -215,7 +217,10 @@ class WompiGateway(BaseGateway):
             status_message=transaction.get("status_message"),
             payment_method_type=transaction.get("payment_method_type"),
             payment_method_data=transaction.get("payment_method"),
-            raw_data=event_data
+            raw_data=event_data,
+            customer_email=customer_email,
+            customer_data=customer_data,
+            billing_data=billing_data,
         )
 
     def _verify_event_signature(self, event_data: Dict[str, Any]) -> bool:
@@ -292,6 +297,8 @@ class WompiGateway(BaseGateway):
                 status = data.get("status", "").upper()
                 mapped_status = self._map_wompi_status(status)
 
+                customer_email, customer_data, billing_data = self._extract_customer_data(data)
+
                 return WebhookResult(
                     success=True,
                     reference=data.get("reference", gateway_order_id),
@@ -300,7 +307,10 @@ class WompiGateway(BaseGateway):
                     status_message=data.get("status_message"),
                     payment_method_type=data.get("payment_method_type"),
                     payment_method_data=data.get("payment_method"),
-                    raw_data=data
+                    raw_data=data,
+                    customer_email=customer_email,
+                    customer_data=customer_data,
+                    billing_data=billing_data,
                 )
 
         except httpx.RequestError as e:
@@ -311,6 +321,78 @@ class WompiGateway(BaseGateway):
                 status=PaymentStatus.ERROR,
                 status_message=str(e)
             )
+
+    def _extract_customer_data(self, transaction: Dict[str, Any]):
+        """
+        Extract and normalize customer contact data from a Wompi transaction object.
+
+        Returns (customer_email, customer_data, billing_data).
+
+        Fields intentionally excluded from customer_data:
+        - device_data_token: large JWT with no business value
+        - browser_info: device fingerprint, not contact data
+        - device_id: device fingerprint
+
+        PSE enrichment: address, legal_id, legal_id_type, bank_name come from
+        payment_method.extra and payment_method root fields.
+        NEQUI enrichment: nequi_phone from payment_method.phone_number.
+        """
+        customer_email = transaction.get("customer_email") or None
+
+        raw_customer = transaction.get("customer_data") or {}
+        customer_data: Dict[str, Any] = {}
+
+        if raw_customer.get("full_name"):
+            customer_data["full_name"] = raw_customer["full_name"]
+        if raw_customer.get("phone_number"):
+            customer_data["phone_number"] = raw_customer["phone_number"]
+
+        # Enrich with payment-method-specific contact fields
+        payment_method = transaction.get("payment_method") or {}
+        pm_type = (transaction.get("payment_method_type") or "").upper()
+        pm_extra = payment_method.get("extra") or {}
+
+        if pm_type == "PSE":
+            if pm_extra.get("address"):
+                customer_data["address"] = pm_extra["address"]
+            legal_id = payment_method.get("user_legal_id") or pm_extra.get("identificationNumber")
+            legal_id_type = payment_method.get("user_legal_id_type")
+            bank_name = pm_extra.get("financial_institution_name")
+            if legal_id:
+                customer_data["legal_id"] = str(legal_id)
+            if legal_id_type:
+                customer_data["legal_id_type"] = legal_id_type
+            if bank_name:
+                customer_data["bank_name"] = bank_name
+
+        elif pm_type == "NEQUI":
+            nequi_phone = payment_method.get("phone_number")
+            if nequi_phone:
+                customer_data["nequi_phone"] = str(nequi_phone)
+
+        elif pm_type == "DAVIPLATA":
+            daviplata_phone = payment_method.get("phone_number")
+            if daviplata_phone:
+                customer_data["daviplata_phone"] = str(daviplata_phone)
+
+        elif pm_type == "BANCOLOMBIA_TRANSFER":
+            user_type = payment_method.get("user_type")
+            if user_type is not None:
+                customer_data["user_type"] = str(user_type)
+
+        elif pm_type == "CARD":
+            # billing_data already handled below; card_holder available in payment_method_data
+            card_holder = pm_extra.get("card_holder")
+            if card_holder:
+                customer_data.setdefault("full_name", card_holder)
+
+        billing_data = transaction.get("billing_data") or None
+
+        return (
+            customer_email,
+            customer_data if customer_data else None,
+            billing_data,
+        )
 
     def _map_wompi_status(self, wompi_status: str) -> PaymentStatus:
         """Map Wompi status to unified PaymentStatus"""

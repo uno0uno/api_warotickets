@@ -283,6 +283,9 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
                 status_message = $4,
                 payment_method_type = $5,
                 payment_method_data = $6,
+                customer_email = COALESCE(customer_email, $8),
+                customer_data = COALESCE(customer_data, $9::jsonb),
+                billing_data = COALESCE(billing_data, $10::jsonb),
                 updated_at = NOW()
             WHERE id = $1
         """,
@@ -292,10 +295,28 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
             result.status_message,
             result.payment_method_type,
             json.dumps(result.payment_method_data) if result.payment_method_data else None,
-            is_final
+            is_final,
+            result.customer_email,
+            json.dumps(result.customer_data) if result.customer_data else None,
+            json.dumps(result.billing_data) if result.billing_data else None,
         )
 
         logger.info(f"Updated payment {payment.id} status to {result.status.value}")
+
+        # Enrich profile with Wompi-verified contact data (non-blocking)
+        if result.customer_email:
+            try:
+                full_name = (result.customer_data or {}).get("full_name")
+                phone = (result.customer_data or {}).get("phone_number")
+                if full_name or phone:
+                    await conn.execute("""
+                        UPDATE profile
+                        SET name = COALESCE(NULLIF(TRIM(name), ''), $2),
+                            phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), $3)
+                        WHERE email = $1
+                    """, result.customer_email, full_name, phone)
+            except Exception as e:
+                logger.error(f"Failed to enrich profile from webhook: {e}")
 
         # If approved and wasn't already, confirm reservation and send email
         if result.status == PaymentStatus.APPROVED and not was_already_approved:
@@ -432,6 +453,9 @@ async def check_payment_status(payment_id: int) -> Payment:
                         status_message = $4,
                         payment_method_type = $5,
                         payment_method_data = $6,
+                        customer_email = COALESCE(customer_email, $7),
+                        customer_data = COALESCE(customer_data, $8::jsonb),
+                        billing_data = COALESCE(billing_data, $9::jsonb),
                         updated_at = NOW()
                     WHERE id = $1
                 """,
@@ -440,10 +464,28 @@ async def check_payment_status(payment_id: int) -> Payment:
                     result.gateway_transaction_id,
                     result.status_message,
                     result.payment_method_type,
-                    json.dumps(result.payment_method_data) if result.payment_method_data else None
+                    json.dumps(result.payment_method_data) if result.payment_method_data else None,
+                    result.customer_email,
+                    json.dumps(result.customer_data) if result.customer_data else None,
+                    json.dumps(result.billing_data) if result.billing_data else None,
                 )
 
                 logger.info(f"Updated payment {payment_id} status to {result.status.value} via polling")
+
+                # Enrich profile with Wompi-verified contact data (non-blocking)
+                if result.customer_email:
+                    try:
+                        full_name = (result.customer_data or {}).get("full_name")
+                        phone = (result.customer_data or {}).get("phone_number")
+                        if full_name or phone:
+                            await conn.execute("""
+                                UPDATE profile
+                                SET name = COALESCE(NULLIF(TRIM(name), ''), $2),
+                                    phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), $3)
+                                WHERE email = $1
+                            """, result.customer_email, full_name, phone)
+                    except Exception as e:
+                        logger.error(f"Failed to enrich profile via polling: {e}")
 
                 # If approved, confirm reservation
                 if result.status == PaymentStatus.APPROVED:
@@ -558,6 +600,11 @@ async def verify_transaction(transaction_id: str) -> Payment:
         payment_method_data = json.dumps(tx_data.get("payment_method")) if tx_data.get("payment_method") else None
         is_final = new_status in ['approved', 'declined', 'voided', 'error']
 
+        # Extract customer data from tx_data (Wompi transaction object)
+        from app.services.gateways.wompi import WompiGateway
+        _gw = WompiGateway()
+        tx_customer_email, tx_customer_data, tx_billing_data = _gw._extract_customer_data(tx_data)
+
         await conn.execute("""
             UPDATE payments
             SET status = $2,
@@ -566,6 +613,9 @@ async def verify_transaction(transaction_id: str) -> Payment:
                 status_message = $4,
                 payment_method_type = $5,
                 payment_method_data = $6,
+                customer_email = COALESCE(customer_email, $8),
+                customer_data = COALESCE(customer_data, $9::jsonb),
+                billing_data = COALESCE(billing_data, $10::jsonb),
                 updated_at = NOW()
             WHERE id = $1
         """,
@@ -575,10 +625,28 @@ async def verify_transaction(transaction_id: str) -> Payment:
             tx_data.get("status_message"),
             tx_data.get("payment_method_type"),
             payment_method_data,
-            is_final
+            is_final,
+            tx_customer_email,
+            json.dumps(tx_customer_data) if tx_customer_data else None,
+            json.dumps(tx_billing_data) if tx_billing_data else None,
         )
 
         logger.info(f"Updated payment {payment.id} to status {new_status} via verify_transaction")
+
+        # Enrich profile with Wompi-verified contact data (non-blocking)
+        if tx_customer_email:
+            try:
+                full_name = (tx_customer_data or {}).get("full_name")
+                phone = (tx_customer_data or {}).get("phone_number")
+                if full_name or phone:
+                    await conn.execute("""
+                        UPDATE profile
+                        SET name = COALESCE(NULLIF(TRIM(name), ''), $2),
+                            phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), $3)
+                        WHERE email = $1
+                    """, tx_customer_email, full_name, phone)
+            except Exception as e:
+                logger.error(f"Failed to enrich profile via verify_transaction: {e}")
 
         # If approved, confirm reservation and send email
         if new_status == "approved":

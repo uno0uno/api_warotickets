@@ -47,6 +47,9 @@ class WebhookResult:
     payment_method_type: Optional[str] = None
     payment_method_data: Optional[Dict[str, Any]] = None
     raw_data: Optional[Dict[str, Any]] = None
+    customer_email: Optional[str] = None
+    customer_data: Optional[Dict[str, Any]] = None
+    billing_data: Optional[Dict[str, Any]] = None
 
 
 @dataclass
