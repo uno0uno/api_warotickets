@@ -311,9 +311,10 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
                 if full_name or phone:
                     await conn.execute("""
                         UPDATE profile
-                        SET name = COALESCE(NULLIF(TRIM(name), ''), $2),
-                            phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), $3)
+                        SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2),
+                            phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3)
                         WHERE email = $1
+                          AND ($2 IS NOT NULL OR $3 IS NOT NULL)
                     """, result.customer_email, full_name, phone)
             except Exception as e:
                 logger.error(f"Failed to enrich profile from webhook: {e}")
@@ -480,9 +481,10 @@ async def check_payment_status(payment_id: int) -> Payment:
                         if full_name or phone:
                             await conn.execute("""
                                 UPDATE profile
-                                SET name = COALESCE(NULLIF(TRIM(name), ''), $2),
-                                    phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), $3)
+                                SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2),
+                                    phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3)
                                 WHERE email = $1
+                                  AND ($2 IS NOT NULL OR $3 IS NOT NULL)
                             """, result.customer_email, full_name, phone)
                     except Exception as e:
                         logger.error(f"Failed to enrich profile via polling: {e}")
@@ -641,9 +643,10 @@ async def verify_transaction(transaction_id: str) -> Payment:
                 if full_name or phone:
                     await conn.execute("""
                         UPDATE profile
-                        SET name = COALESCE(NULLIF(TRIM(name), ''), $2),
-                            phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), $3)
+                        SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2),
+                            phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3)
                         WHERE email = $1
+                          AND ($2 IS NOT NULL OR $3 IS NOT NULL)
                     """, tx_customer_email, full_name, phone)
             except Exception as e:
                 logger.error(f"Failed to enrich profile via verify_transaction: {e}")

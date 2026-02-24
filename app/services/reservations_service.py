@@ -152,7 +152,8 @@ async def get_event_reservation_detail(
                    p.status as payment_status, p.payment_method_type,
                    p.payment_method_data, p.payment_date, p.finalized_at,
                    p.gateway_name, p.customer_email as payment_email,
-                   p.status_message, p.payment_gateway_transaction_id
+                   p.status_message, p.payment_gateway_transaction_id,
+                   p.customer_data
             FROM payments p
             WHERE p.reservation_id = $1
             ORDER BY p.payment_date DESC NULLS LAST
@@ -302,13 +303,31 @@ async def get_event_reservation_detail(
                 "payment_reference": commission['payment_reference'],
             }
 
+        # COALESCE: prefer profile values, fall back to Wompi customer_data
+        # when profile contains placeholder values from guest-checkout auto-creation
+        payment_cd = dict(payment.get('customer_data') or {}) if payment else {}
+        profile_email = res['customer_email'] or ''
+        profile_phone = res['phone_number']
+        profile_name = res['customer_name']
+
+        real_phone = (
+            profile_phone
+            if profile_phone and profile_phone != '0000000000'
+            else payment_cd.get('phone_number')
+        )
+        real_name = (
+            profile_name
+            if profile_name and profile_name != profile_email.split('@')[0]
+            else payment_cd.get('full_name') or profile_name
+        )
+
         return {
             "id": str(res['id']),
             "status": res['status'],
             "reservation_date": res['reservation_date'].isoformat() if res['reservation_date'] else None,
-            "customer_name": res['customer_name'],
+            "customer_name": real_name,
             "customer_email": res['customer_email'],
-            "customer_phone": res['phone_number'],
+            "customer_phone": real_phone,
             "event_name": res['event_name'],
             "event_slug": res['event_slug'],
             "event_date": res['event_date'].isoformat() if res['event_date'] else None,
