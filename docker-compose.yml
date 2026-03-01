@@ -7,9 +7,9 @@ services:
     env_file:
       - .env.${APP_ENV:-prod}
     networks:
-      - warolabs-network
+      - waro-network
     restart: unless-stopped
 
 networks:
-  warolabs-network:
+  waro-network:
     external: true
