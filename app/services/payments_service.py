@@ -311,10 +311,10 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
                 if full_name or phone:
                     await conn.execute("""
                         UPDATE profile
-                        SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2),
-                            phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3)
+                        SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2::text),
+                            phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3::text)
                         WHERE email = $1
-                          AND ($2 IS NOT NULL OR $3 IS NOT NULL)
+                          AND ($2::text IS NOT NULL OR $3::text IS NOT NULL)
                     """, result.customer_email, full_name, phone)
             except Exception as e:
                 logger.error(f"Failed to enrich profile from webhook: {e}")
@@ -481,10 +481,10 @@ async def check_payment_status(payment_id: int) -> Payment:
                         if full_name or phone:
                             await conn.execute("""
                                 UPDATE profile
-                                SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2),
-                                    phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3)
+                                SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2::text),
+                                    phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3::text)
                                 WHERE email = $1
-                                  AND ($2 IS NOT NULL OR $3 IS NOT NULL)
+                                  AND ($2::text IS NOT NULL OR $3::text IS NOT NULL)
                             """, result.customer_email, full_name, phone)
                     except Exception as e:
                         logger.error(f"Failed to enrich profile via polling: {e}")
@@ -607,6 +607,16 @@ async def verify_transaction(transaction_id: str) -> Payment:
         _gw = WompiGateway()
         tx_customer_email, tx_customer_data, tx_billing_data = _gw._extract_customer_data(tx_data)
 
+        # Idempotency guard: lock the payment row to prevent duplicate processing
+        # from concurrent verify_transaction calls (e.g. user refreshing the checkout page)
+        locked = await conn.fetchrow(
+            "SELECT id, status FROM payments WHERE id = $1 FOR UPDATE",
+            payment.id
+        )
+        if locked['status'] in ('approved', 'declined', 'voided', 'error'):
+            logger.info(f"Payment {payment.id} already {locked['status']}, skipping duplicate verify_transaction")
+            return await get_payment_by_id(payment.id)
+
         await conn.execute("""
             UPDATE payments
             SET status = $2,
@@ -643,10 +653,10 @@ async def verify_transaction(transaction_id: str) -> Payment:
                 if full_name or phone:
                     await conn.execute("""
                         UPDATE profile
-                        SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2),
-                            phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3)
+                        SET name = COALESCE(NULLIF(NULLIF(TRIM(name), ''), split_part(email, '@', 1)), $2::text),
+                            phone_number = COALESCE(NULLIF(NULLIF(TRIM(phone_number), ''), '0000000000'), $3::text)
                         WHERE email = $1
-                          AND ($2 IS NOT NULL OR $3 IS NOT NULL)
+                          AND ($2::text IS NOT NULL OR $3::text IS NOT NULL)
                     """, tx_customer_email, full_name, phone)
             except Exception as e:
                 logger.error(f"Failed to enrich profile via verify_transaction: {e}")
