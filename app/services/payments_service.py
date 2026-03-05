@@ -190,12 +190,8 @@ async def get_payment_by_id(payment_id: int, user_id: Optional[str] = None) -> O
             return None
 
         payment_dict = dict(row)
-        # Convert UUID to string
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
-        # Parse JSON string to dict for payment_method_data
-        if payment_dict.get('payment_method_data') and isinstance(payment_dict['payment_method_data'], str):
-            payment_dict['payment_method_data'] = json.loads(payment_dict['payment_method_data'])
 
         return Payment(**payment_dict)
 
@@ -214,8 +210,6 @@ async def get_payment_by_reference(reference: str) -> Optional[Payment]:
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
-        if payment_dict.get('payment_method_data') and isinstance(payment_dict['payment_method_data'], str):
-            payment_dict['payment_method_data'] = json.loads(payment_dict['payment_method_data'])
 
         return Payment(**payment_dict)
 
@@ -234,8 +228,6 @@ async def get_payment_by_gateway_order(gateway_order_id: str) -> Optional[Paymen
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
-        if payment_dict.get('payment_method_data') and isinstance(payment_dict['payment_method_data'], str):
-            payment_dict['payment_method_data'] = json.loads(payment_dict['payment_method_data'])
 
         return Payment(**payment_dict)
 

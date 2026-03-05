@@ -1,9 +1,21 @@
 import asyncpg
+import json
 from contextlib import asynccontextmanager
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+async def _init_connection(conn):
+    """Register jsonb codec so all jsonb columns are decoded as Python dicts automatically."""
+    await conn.set_type_codec(
+        'jsonb',
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema='pg_catalog'
+    )
+
 
 class DatabasePool:
     _pool = None
@@ -19,7 +31,8 @@ class DatabasePool:
                     max_queries=50000,
                     max_inactive_connection_lifetime=300,
                     command_timeout=60,
-                    timeout=30
+                    timeout=30,
+                    init=_init_connection
                 )
                 logger.info(f"Database pool created: {settings.db_name}@{settings.db_host}")
             except Exception as e:
