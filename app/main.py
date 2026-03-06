@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
@@ -8,13 +10,33 @@ from app.core.middleware import tenant_detection_middleware, session_validation_
 # Initialize logging
 setup_logging()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle - startup and shutdown"""
+    from app.database import DatabasePool
+    from app.tasks.cleanup import run_cleanup_loop
+    await DatabasePool.create_pool()
+    cleanup_task = asyncio.create_task(run_cleanup_loop())
+
+    yield
+
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    await DatabasePool.close_pool()
+
+
 app = FastAPI(
     title="WaRo Tickets API",
     description="API para sistema de ticketera y venta de boleteria",
     version="1.0.0",
     debug=settings.debug,
     docs_url="/docs",
-    redirect_slashes=True
+    redirect_slashes=True,
+    lifespan=lifespan
 )
 
 # Configure cookie authentication for Swagger UI
@@ -151,29 +173,6 @@ async def health():
         "database": settings.db_name,
         "host": settings.db_host
     }
-
-# Background tasks
-import asyncio
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Manage application lifecycle - startup and shutdown"""
-    # Startup: Start background cleanup task
-    from app.tasks.cleanup import run_cleanup_loop
-    cleanup_task = asyncio.create_task(run_cleanup_loop())
-
-    yield
-
-    # Shutdown: Cancel background task
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-
-# Note: To use lifespan, update FastAPI initialization:
-# app = FastAPI(..., lifespan=lifespan)
 
 # Auto-start server if run directly
 if __name__ == "__main__":
