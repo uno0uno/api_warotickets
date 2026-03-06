@@ -305,7 +305,11 @@ async def get_event_reservation_detail(
 
         # COALESCE: prefer profile values, fall back to Wompi customer_data
         # when profile contains placeholder values from guest-checkout auto-creation
-        payment_cd = dict(payment.get('customer_data') or {}) if payment else {}
+        customer_data_raw = payment.get('customer_data') if payment else None
+        if isinstance(customer_data_raw, str):
+            payment_cd = json.loads(customer_data_raw) if customer_data_raw else {}
+        else:
+            payment_cd = dict(customer_data_raw or {})
         profile_email = res['customer_email'] or ''
         profile_phone = res['phone_number']
         profile_name = res['customer_name']
