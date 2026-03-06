@@ -28,7 +28,7 @@ async def cleanup_expired_reservations():
             FROM reservations r
             JOIN reservation_units ru ON ru.reservation_id = r.id
             WHERE r.status = 'pending'
-              AND r.created_at < $1
+              AND r.reservation_date < $1
             GROUP BY r.id
         """, timeout)
 
