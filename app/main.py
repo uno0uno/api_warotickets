@@ -1,12 +1,20 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core.logging import setup_logging
 from app.core.exceptions import api_exception_handler, general_exception_handler, APIError
 from app.core.middleware import tenant_detection_middleware, session_validation_middleware, request_logging_middleware
+from app.database import DatabasePool
 
 # Initialize logging
 setup_logging()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await DatabasePool.create_pool()
+    yield
+    await DatabasePool.close_pool()
 
 app = FastAPI(
     title="WaRo Tickets API",
@@ -14,7 +22,8 @@ app = FastAPI(
     version="1.0.0",
     debug=settings.debug,
     docs_url="/docs",
-    redirect_slashes=True
+    redirect_slashes=True,
+    lifespan=lifespan
 )
 
 # Configure cookie authentication for Swagger UI
