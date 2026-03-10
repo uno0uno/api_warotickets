@@ -803,6 +803,21 @@ async def checkout(
         if not cart:
             raise ValidationError("Carrito no encontrado o ya procesado")
 
+        # Reject checkout for inactive or past events
+        cluster_row = await conn.fetchrow(
+            "SELECT is_active, end_date FROM clusters WHERE id = $1",
+            cart['cluster_id']
+        )
+        if cluster_row:
+            if not cluster_row['is_active']:
+                raise ValidationError("Este evento no está disponible")
+            if cluster_row['end_date']:
+                end_dt = cluster_row['end_date']
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > end_dt:
+                    raise ValidationError("Este evento ya finalizó")
+
         # Get cart items
         items = await conn.fetch("""
             SELECT tci.area_id, tci.quantity, tci.promotion_id
