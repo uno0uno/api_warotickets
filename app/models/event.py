@@ -178,6 +178,7 @@ class EventPublic(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     cluster_type: Optional[str] = None
+    is_active: bool = True
     cover_image_url: Optional[str] = None
     banner_image_url: Optional[str] = None
     flyer_image_url: Optional[str] = None

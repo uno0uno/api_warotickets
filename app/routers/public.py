@@ -77,6 +77,7 @@ async def get_public_event(
         start_date=event.start_date,
         end_date=event.end_date,
         cluster_type=event.cluster_type,
+        is_active=event.is_active,
         cover_image_url=cover_url,
         banner_image_url=banner_url,
         flyer_image_url=flyer_url,

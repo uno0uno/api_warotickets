@@ -6,10 +6,9 @@ from app.database import get_db_connection
 from app.models.event import (
     Event, EventCreate, EventUpdate, EventSummary,
     EventImage, EventImageCreate, LegalInfo, LegalInfoCreate,
-    EventCreateWithAreas, AreaCreateNested,
-    EventUpdateWithAreas, AreaUpdateNested
+    EventCreateWithAreas, EventUpdateWithAreas
 )
-from app.core.exceptions import ValidationError, DatabaseError
+from app.core.exceptions import ValidationError
 import re
 
 logger = logging.getLogger(__name__)
@@ -88,7 +87,7 @@ async def get_events(
             param_idx += 1
 
         if not include_shadowban:
-            query += f" AND c.shadowban = false"
+            query += " AND c.shadowban = false"
 
         query += f" ORDER BY c.start_date DESC NULLS LAST LIMIT ${param_idx} OFFSET ${param_idx + 1}"
         params.extend([limit, offset])
@@ -168,7 +167,6 @@ async def get_event_by_slug(slug: str, tenant_id: Optional[str] = None, environm
                 ) as tickets_available
             FROM clusters c
             WHERE c.slug_cluster = $1
-              AND c.is_active = true
               AND c.shadowban = false
               AND c.environment = $2
         """

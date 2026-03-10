@@ -1,10 +1,9 @@
 import logging
-from typing import Optional, List
+from typing import Optional
 from decimal import Decimal
 from datetime import datetime, timezone
 from app.database import get_db_connection
 from app.models.ticket_cart import (
-    TicketCartItemCreate, TicketCartCreate, TicketCartItemUpdate,
     TicketCartResponse, TicketCartItemResponse, CartSummary, CheckoutResponse,
     ConvertedPromotion
 )
@@ -94,17 +93,20 @@ async def get_or_create_cart(
         if cluster_id:
             tenant_id = await get_tenant_id(conn, cluster_id)
 
-            # Reject cart creation for past events
+            # Reject cart creation for inactive or past events
             cluster_row = await conn.fetchrow(
-                "SELECT end_date FROM clusters WHERE id = $1",
+                "SELECT end_date, is_active FROM clusters WHERE id = $1",
                 cluster_id
             )
-            if cluster_row and cluster_row['end_date']:
-                end_dt = cluster_row['end_date']
-                if end_dt.tzinfo is None:
-                    end_dt = end_dt.replace(tzinfo=timezone.utc)
-                if datetime.now(timezone.utc) > end_dt:
-                    raise ValidationError("Este evento ya finalizó y no acepta nuevas compras")
+            if cluster_row:
+                if not cluster_row['is_active']:
+                    raise ValidationError("Este evento no está disponible")
+                if cluster_row['end_date']:
+                    end_dt = cluster_row['end_date']
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    if datetime.now(timezone.utc) > end_dt:
+                        raise ValidationError("Este evento ya finalizó y no acepta nuevas compras")
 
             row = await conn.fetchrow("""
                 INSERT INTO ticket_carts (tenant_id, session_id, user_id, cluster_id, promoter_code_id, status)
@@ -310,16 +312,20 @@ async def add_item(
         if not cart:
             raise ValidationError("Carrito no encontrado")
 
-        # Reject adding items if event has already ended (defense-in-depth for open carts)
-        cluster_end = await conn.fetchval(
-            "SELECT end_date FROM clusters WHERE id = $1",
+        # Reject adding items if event is inactive or has already ended (defense-in-depth)
+        cluster_row = await conn.fetchrow(
+            "SELECT end_date, is_active FROM clusters WHERE id = $1",
             cart['cluster_id']
         )
-        if cluster_end:
-            if cluster_end.tzinfo is None:
-                cluster_end = cluster_end.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) > cluster_end:
-                raise ValidationError("Este evento ya finalizó")
+        if cluster_row:
+            if not cluster_row['is_active']:
+                raise ValidationError("Este evento no está disponible")
+            if cluster_row['end_date']:
+                end_dt = cluster_row['end_date']
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > end_dt:
+                    raise ValidationError("Este evento ya finalizó")
 
         # Get area info
         area = await conn.fetchrow("""
@@ -833,7 +839,7 @@ async def checkout(
 
             if len(available_units) < tickets_count:
                 raise ValidationError(
-                    f"No hay suficientes boletas disponibles para el area seleccionada"
+                    "No hay suficientes boletas disponibles para el area seleccionada"
                 )
 
             item_unit_ids = [u['id'] for u in available_units]
