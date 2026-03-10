@@ -94,6 +94,18 @@ async def get_or_create_cart(
         if cluster_id:
             tenant_id = await get_tenant_id(conn, cluster_id)
 
+            # Reject cart creation for past events
+            cluster_row = await conn.fetchrow(
+                "SELECT end_date FROM clusters WHERE id = $1",
+                cluster_id
+            )
+            if cluster_row and cluster_row['end_date']:
+                end_dt = cluster_row['end_date']
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) > end_dt:
+                    raise ValidationError("Este evento ya finalizó y no acepta nuevas compras")
+
             row = await conn.fetchrow("""
                 INSERT INTO ticket_carts (tenant_id, session_id, user_id, cluster_id, promoter_code_id, status)
                 VALUES ($1, $2, $3, $4, $5, 'active')
@@ -297,6 +309,17 @@ async def add_item(
         )
         if not cart:
             raise ValidationError("Carrito no encontrado")
+
+        # Reject adding items if event has already ended (defense-in-depth for open carts)
+        cluster_end = await conn.fetchval(
+            "SELECT end_date FROM clusters WHERE id = $1",
+            cart['cluster_id']
+        )
+        if cluster_end:
+            if cluster_end.tzinfo is None:
+                cluster_end = cluster_end.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > cluster_end:
+                raise ValidationError("Este evento ya finalizó")
 
         # Get area info
         area = await conn.fetchrow("""
