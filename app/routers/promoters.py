@@ -214,6 +214,7 @@ async def get_my_events(
                 c.start_date,
                 c.is_active,
                 pec.commission_percentage,
+                c.commission_percentage as cluster_commission_percentage,
                 pec.is_active as config_active
             FROM promoter_event_configs pec
             JOIN clusters c ON c.id = pec.cluster_id
