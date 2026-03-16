@@ -338,25 +338,37 @@ async def get_promoter_stats(
     """
     async with get_db_connection(use_transaction=False) as conn:
         # Build WHERE clause dynamically
-        where_clauses = ["tenant_member_id = $1"]
+        where_clauses = ["oc.tenant_member_id = $1"]
         params = [tenant_member_id]
 
         if cluster_id is not None:
-            where_clauses.append("cluster_id = $2")
+            where_clauses.append("oc.cluster_id = $2")
             params.append(cluster_id)
 
         where_clause = " AND ".join(where_clauses)
 
+        # Include cluster_commission_percentage when filtering by a specific cluster
+        cluster_pct_select = (
+            ", c.commission_percentage as cluster_commission_percentage"
+            if cluster_id is not None else ""
+        )
+        cluster_join = (
+            "LEFT JOIN clusters c ON c.id = oc.cluster_id"
+            if cluster_id is not None else ""
+        )
+
         query = f"""
             SELECT
                 COUNT(*) as total_sales,
-                SUM(tickets_count) as total_tickets,
-                SUM(total_base_price) as total_revenue,
-                SUM(commission_amount) as total_commissions,
-                SUM(CASE WHEN status = 'pending' THEN commission_amount ELSE 0 END) as pending,
-                SUM(CASE WHEN status = 'approved' THEN commission_amount ELSE 0 END) as approved,
-                SUM(CASE WHEN status = 'paid' THEN commission_amount ELSE 0 END) as paid
-            FROM order_commissions
+                SUM(oc.tickets_count) as total_tickets,
+                SUM(oc.total_base_price) as total_revenue,
+                SUM(oc.commission_amount) as total_commissions,
+                SUM(CASE WHEN oc.status = 'pending' THEN oc.commission_amount ELSE 0 END) as pending,
+                SUM(CASE WHEN oc.status = 'approved' THEN oc.commission_amount ELSE 0 END) as approved,
+                SUM(CASE WHEN oc.status = 'paid' THEN oc.commission_amount ELSE 0 END) as paid
+                {cluster_pct_select}
+            FROM order_commissions oc
+            {cluster_join}
             WHERE {where_clause}
         """
 
@@ -368,5 +380,9 @@ async def get_promoter_stats(
         for key in ['total_sales', 'total_tickets', 'total_revenue', 'total_commissions', 'pending', 'approved', 'paid']:
             if result.get(key) is None:
                 result[key] = 0
+
+        # cluster_commission_percentage is None when no cluster filter — leave as-is
+        if cluster_id is None:
+            result['cluster_commission_percentage'] = None
 
         return result

@@ -140,7 +140,14 @@ async def list_all_commissions(
             SELECT
                 oc.*,
                 c.cluster_name,
-                c.event_name,
+                c.cluster_name as event_name,
+                c.commission_percentage as cluster_commission_percentage,
+                CASE
+                    WHEN c.total_capacity <= 500   THEN '1-500'
+                    WHEN c.total_capacity <= 2000  THEN '501-2000'
+                    WHEN c.total_capacity <= 5000  THEN '2001-5000'
+                    ELSE '5001+'
+                END as service_fee_tier,
                 p.customer_email,
                 p.customer_name,
                 tm.user_id,
@@ -199,9 +206,29 @@ async def get_commissions_summary(
             if result[key] is None:
                 result[key] = 0
 
+        # Desglose por cluster: muestra % actual y cuántas comisiones usan % histórico distinto
+        by_cluster_rows = await conn.fetch("""
+            SELECT
+                c.id as cluster_id,
+                c.cluster_name,
+                c.commission_percentage as current_cluster_pct,
+                COUNT(oc.id) as total_commissions,
+                COUNT(CASE WHEN oc.commission_percentage = c.commission_percentage THEN 1 END) as using_current_pct,
+                COUNT(CASE WHEN oc.commission_percentage != c.commission_percentage THEN 1 END) as using_historical_pct,
+                COALESCE(SUM(oc.commission_amount), 0) as total_amount,
+                COALESCE(SUM(CASE WHEN oc.status = 'pending' THEN oc.commission_amount ELSE 0 END), 0) as pending_amount,
+                COALESCE(SUM(CASE WHEN oc.status = 'paid' THEN oc.commission_amount ELSE 0 END), 0) as paid_amount
+            FROM order_commissions oc
+            JOIN clusters c ON c.id = oc.cluster_id
+            WHERE oc.tenant_id = $1
+            GROUP BY c.id, c.cluster_name, c.commission_percentage
+            ORDER BY total_amount DESC
+        """, tenant_id)
+
         return {
             "success": True,
-            "summary": result
+            "summary": result,
+            "by_cluster": [dict(row) for row in by_cluster_rows]
         }
 
 
@@ -222,8 +249,15 @@ async def get_commission_detail(
             SELECT
                 oc.*,
                 c.cluster_name,
-                c.event_name,
+                c.cluster_name as event_name,
                 c.event_date,
+                c.commission_percentage as cluster_commission_percentage,
+                CASE
+                    WHEN c.total_capacity <= 500   THEN '1-500'
+                    WHEN c.total_capacity <= 2000  THEN '501-2000'
+                    WHEN c.total_capacity <= 5000  THEN '2001-5000'
+                    ELSE '5001+'
+                END as service_fee_tier,
                 p.customer_email,
                 p.customer_name,
                 p.amount as payment_amount,

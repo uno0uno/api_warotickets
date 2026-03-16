@@ -202,7 +202,9 @@ async def get_promoter_detail(
                 pec.cluster_id,
                 c.cluster_name,
                 c.start_date,
-                pec.commission_percentage,
+                c.commission_percentage as cluster_commission_percentage,
+                pec.commission_percentage as override_commission_percentage,
+                (pec.commission_percentage IS DISTINCT FROM c.commission_percentage) as has_override,
                 COALESCE(stats.sales_count, 0) as sales_count,
                 COALESCE(stats.revenue, 0) as revenue,
                 COALESCE(stats.commission_earned, 0) as commission_earned
@@ -325,7 +327,7 @@ async def update_promoter_commission(
 
 class EventConfigItem(BaseModel):
     cluster_id: int
-    commission_percentage: float
+    commission_percentage: Optional[float] = None  # None → usa el del cluster
 
 
 class SaveEventConfigsRequest(BaseModel):
@@ -368,9 +370,26 @@ async def save_event_configs(
             WHERE promoter_code_id = $1
         """, promoter_code_id)
 
+        # Resolver cluster defaults en un solo query (evita N+1 cuando commission_percentage es None)
+        cluster_ids_needing_default = [
+            e.cluster_id for e in data.events if e.commission_percentage is None
+        ]
+        cluster_defaults: dict = {}
+        if cluster_ids_needing_default:
+            default_rows = await conn.fetch(
+                "SELECT id, commission_percentage FROM clusters WHERE id = ANY($1::int[])",
+                cluster_ids_needing_default
+            )
+            cluster_defaults = {row['id']: float(row['commission_percentage']) for row in default_rows}
+
         # Insertar/reactivar las nuevas configuraciones
         saved = []
         for event in data.events:
+            pct = (
+                event.commission_percentage
+                if event.commission_percentage is not None
+                else cluster_defaults.get(event.cluster_id, 10.0)
+            )
             row = await conn.fetchrow("""
                 INSERT INTO promoter_event_configs (
                     promoter_code_id, cluster_id, tenant_id, commission_percentage, is_active
@@ -382,7 +401,7 @@ async def save_event_configs(
                     is_active = true,
                     updated_at = now()
                 RETURNING *
-            """, promoter_code_id, event.cluster_id, tenant_id, event.commission_percentage)
+            """, promoter_code_id, event.cluster_id, tenant_id, pct)
             saved.append(dict(row))
 
         logger.info(
