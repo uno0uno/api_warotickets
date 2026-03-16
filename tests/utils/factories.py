@@ -298,3 +298,103 @@ class TransferFactory:
             "transfer_date": datetime.now(),
             "expires_at": expires_at
         }
+
+
+class PromoterCodeFactory:
+    """Factory para crear promoter_codes de prueba."""
+
+    _counter = 0
+
+    @classmethod
+    def create(
+        cls,
+        id: Optional[str] = None,
+        tenant_member_id: str = "test-member-123",
+        tenant_id: str = "test-tenant-123",
+        code: Optional[str] = None,
+        commission_percentage: float = 10.0,
+        **kwargs
+    ) -> dict:
+        cls._counter += 1
+        return {
+            "id": id or f"promo-code-{cls._counter}",
+            "tenant_member_id": tenant_member_id,
+            "tenant_id": tenant_id,
+            "code": code or f"WARO{cls._counter:04d}",
+            "commission_percentage": commission_percentage,
+            "is_active": kwargs.get("is_active", True),
+            "created_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
+
+
+class ClusterFactory:
+    """Factory para crear clusters de prueba."""
+
+    _counter = 0
+
+    @classmethod
+    def create(
+        cls,
+        id: Optional[int] = None,
+        commission_percentage: float = 10.0,
+        **kwargs
+    ) -> dict:
+        cls._counter += 1
+        return {
+            "id": id or cls._counter,
+            "commission_percentage": commission_percentage,
+            "total_capacity": kwargs.get("total_capacity", 500),
+            "created_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
+
+
+class OrderCommissionFactory:
+    """Factory para crear order_commissions de prueba."""
+
+    _counter = 0
+
+    @classmethod
+    def create(
+        cls,
+        id: Optional[str] = None,
+        reservation_id: str = "test-reservation-1",
+        payment_id: int = 1,
+        promoter_code_id: str = "promo-code-1",
+        tenant_member_id: str = "test-member-123",
+        tenant_id: str = "test-tenant-123",
+        cluster_id: int = 1,
+        total_base_price: float = 100000.0,
+        tickets_count: int = 1,
+        commission_percentage: float = 10.0,
+        commission_amount: Optional[float] = None,
+        status: str = "approved",
+        **kwargs
+    ) -> dict:
+        cls._counter += 1
+        calculated_amount = commission_amount if commission_amount is not None else round(
+            total_base_price * commission_percentage / 100, 2
+        )
+        return {
+            "id": id or f"commission-{cls._counter}",
+            "reservation_id": reservation_id,
+            "payment_id": payment_id,
+            "promoter_code_id": promoter_code_id,
+            "tenant_member_id": tenant_member_id,
+            "tenant_id": tenant_id,
+            "cluster_id": cluster_id,
+            "total_base_price": total_base_price,
+            "tickets_count": tickets_count,
+            "commission_percentage": commission_percentage,
+            "commission_amount": calculated_amount,
+            "status": status,
+            "approved_at": None,
+            "approved_by": None,
+            "paid_at": None,
+            "payment_reference": None,
+            "notes": None,
+            "extra_attributes": None,
+            "created_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
