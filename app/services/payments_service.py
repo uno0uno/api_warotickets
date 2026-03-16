@@ -6,7 +6,6 @@ Supports multiple payment gateways:
 - Wompi (wompi.co)
 - MercadoPago (coming soon)
 """
-import json
 import logging
 import secrets
 from typing import Optional
@@ -286,11 +285,11 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
             result.gateway_transaction_id,
             result.status_message,
             result.payment_method_type,
-            json.dumps(result.payment_method_data) if result.payment_method_data else None,
+            result.payment_method_data,
             is_final,
             result.customer_email,
-            json.dumps(result.customer_data) if result.customer_data else None,
-            json.dumps(result.billing_data) if result.billing_data else None,
+            result.customer_data,
+            result.billing_data,
         )
 
         logger.info(f"Updated payment {payment.id} status to {result.status.value}")
@@ -457,10 +456,10 @@ async def check_payment_status(payment_id: int) -> Payment:
                     result.gateway_transaction_id,
                     result.status_message,
                     result.payment_method_type,
-                    json.dumps(result.payment_method_data) if result.payment_method_data else None,
+                    result.payment_method_data,
                     result.customer_email,
-                    json.dumps(result.customer_data) if result.customer_data else None,
-                    json.dumps(result.billing_data) if result.billing_data else None,
+                    result.customer_data,
+                    result.billing_data,
                 )
 
                 logger.info(f"Updated payment {payment_id} status to {result.status.value} via polling")
@@ -591,7 +590,7 @@ async def verify_transaction(transaction_id: str) -> Payment:
 
     # Update our payment record
     async with get_db_connection() as conn:
-        payment_method_data = json.dumps(tx_data.get("payment_method")) if tx_data.get("payment_method") else None
+        payment_method_data = tx_data.get("payment_method")
         is_final = new_status in ['approved', 'declined', 'voided', 'error']
 
         # Extract customer data from tx_data (Wompi transaction object)
@@ -631,8 +630,8 @@ async def verify_transaction(transaction_id: str) -> Payment:
             payment_method_data,
             is_final,
             tx_customer_email,
-            json.dumps(tx_customer_data) if tx_customer_data else None,
-            json.dumps(tx_billing_data) if tx_billing_data else None,
+            tx_customer_data,
+            tx_billing_data,
         )
 
         logger.info(f"Updated payment {payment.id} to status {new_status} via verify_transaction")
