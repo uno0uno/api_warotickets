@@ -202,6 +202,7 @@ async def get_promoter_detail(
                 pec.cluster_id,
                 c.cluster_name,
                 c.start_date,
+                c.total_capacity,
                 c.commission_percentage as cluster_commission_percentage,
                 pec.commission_percentage as override_commission_percentage,
                 (pec.commission_percentage IS DISTINCT FROM c.commission_percentage) as has_override,
@@ -250,7 +251,7 @@ async def get_promoter_detail(
 
         # 5. Eventos disponibles del tenant (excluir ya asignados, filtrar por environment)
         available_events = await conn.fetch("""
-            SELECT id, cluster_name as name, start_date
+            SELECT id, cluster_name as name, start_date, commission_percentage, total_capacity
             FROM clusters
             WHERE tenant_id = $1 AND environment = $3
               AND id NOT IN (
