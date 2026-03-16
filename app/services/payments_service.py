@@ -199,9 +199,14 @@ async def get_payment_by_id(payment_id: int, user_id: Optional[str] = None) -> O
         if not row:
             return None
 
+        import json
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+
+        for field in ('payment_method_data', 'customer_data', 'billing_data'):
+            if isinstance(payment_dict.get(field), str):
+                payment_dict[field] = json.loads(payment_dict[field])
 
         return Payment(**payment_dict)
 
@@ -217,9 +222,14 @@ async def get_payment_by_reference(reference: str) -> Optional[Payment]:
         if not row:
             return None
 
+        import json
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+
+        for field in ('payment_method_data', 'customer_data', 'billing_data'):
+            if isinstance(payment_dict.get(field), str):
+                payment_dict[field] = json.loads(payment_dict[field])
 
         return Payment(**payment_dict)
 
@@ -235,9 +245,15 @@ async def get_payment_by_gateway_order(gateway_order_id: str) -> Optional[Paymen
         if not row:
             return None
 
+        import json
         payment_dict = dict(row)
         if payment_dict.get('reservation_id'):
             payment_dict['reservation_id'] = str(payment_dict['reservation_id'])
+
+        # JSONB columns may come back as strings — parse them
+        for field in ('payment_method_data', 'customer_data', 'billing_data'):
+            if isinstance(payment_dict.get(field), str):
+                payment_dict[field] = json.loads(payment_dict[field])
 
         return Payment(**payment_dict)
 
