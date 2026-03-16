@@ -125,16 +125,26 @@ async def create_payment_intent(data: PaymentCreate) -> PaymentIntentResponse:
             logger.error(f"Gateway {gateway.name} error: {e}")
             raise PaymentError(f"Failed to create payment: {str(e)}")
 
+        # Build initial customer_data from checkout form fields
+        initial_customer_data = {}
+        if data.customer_name:
+            initial_customer_data["full_name"] = data.customer_name
+        if data.customer_legal_id:
+            initial_customer_data["legal_id"] = data.customer_legal_id
+        if data.customer_legal_id_type:
+            initial_customer_data["legal_id_type"] = data.customer_legal_id_type
+        initial_customer_data = initial_customer_data or None
+
         # Store payment record
         payment_row = await conn.fetchrow("""
             INSERT INTO payments (
                 reservation_id, payment_date, amount, currency,
                 status, amount_in_cents, customer_email,
                 reference, environment, gateway_name, gateway_order_id,
-                updated_at
+                customer_data, updated_at
             ) VALUES (
                 $1, NOW(), $2, 'COP', 'pending', $3, $4,
-                $5, $6, $7, $8, NOW()
+                $5, $6, $7, $8, $9::jsonb, NOW()
             )
             RETURNING *
         """,
@@ -145,7 +155,8 @@ async def create_payment_intent(data: PaymentCreate) -> PaymentIntentResponse:
             reference,
             settings.wompi_environment,  # Use same env setting
             gateway.name,
-            intent.gateway_order_id
+            intent.gateway_order_id,
+            initial_customer_data
         )
 
         payment_id = payment_row['id']
@@ -275,8 +286,8 @@ async def process_gateway_webhook(gateway_name: str, event_data: dict) -> bool:
                 payment_method_type = $5,
                 payment_method_data = $6,
                 customer_email = COALESCE(customer_email, $8),
-                customer_data = COALESCE(customer_data, $9::jsonb),
-                billing_data = COALESCE(billing_data, $10::jsonb),
+                customer_data = CASE WHEN $9::jsonb IS NULL THEN customer_data ELSE COALESCE(customer_data, '{}'::jsonb) || $9::jsonb END,
+                billing_data = CASE WHEN $10::jsonb IS NULL THEN billing_data ELSE COALESCE(billing_data, '{}'::jsonb) || $10::jsonb END,
                 updated_at = NOW()
             WHERE id = $1
         """,
@@ -446,8 +457,8 @@ async def check_payment_status(payment_id: int) -> Payment:
                         payment_method_type = $5,
                         payment_method_data = $6,
                         customer_email = COALESCE(customer_email, $7),
-                        customer_data = COALESCE(customer_data, $8::jsonb),
-                        billing_data = COALESCE(billing_data, $9::jsonb),
+                        customer_data = CASE WHEN $8::jsonb IS NULL THEN customer_data ELSE COALESCE(customer_data, '{}'::jsonb) || $8::jsonb END,
+                        billing_data = CASE WHEN $9::jsonb IS NULL THEN billing_data ELSE COALESCE(billing_data, '{}'::jsonb) || $9::jsonb END,
                         updated_at = NOW()
                     WHERE id = $1
                 """,
@@ -617,8 +628,8 @@ async def verify_transaction(transaction_id: str) -> Payment:
                 payment_method_type = $5,
                 payment_method_data = $6,
                 customer_email = COALESCE(customer_email, $8),
-                customer_data = COALESCE(customer_data, $9::jsonb),
-                billing_data = COALESCE(billing_data, $10::jsonb),
+                customer_data = CASE WHEN $9::jsonb IS NULL THEN customer_data ELSE COALESCE(customer_data, '{}'::jsonb) || $9::jsonb END,
+                billing_data = CASE WHEN $10::jsonb IS NULL THEN billing_data ELSE COALESCE(billing_data, '{}'::jsonb) || $10::jsonb END,
                 updated_at = NOW()
             WHERE id = $1
         """,
