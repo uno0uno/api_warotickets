@@ -236,9 +236,9 @@ async def create_event(profile_id: str, tenant_id: str, data: EventCreate, envir
             INSERT INTO clusters (
                 profile_id, tenant_id, cluster_name, description, start_date, end_date,
                 cluster_type, slug_cluster, extra_attributes, legal_info_id,
-                is_active, shadowban, environment, created_at, updated_at
+                is_active, shadowban, environment, commission_percentage, created_at, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, false, $11, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, false, $11, $12, NOW(), NOW()
             )
             RETURNING *
         """,
@@ -252,7 +252,8 @@ async def create_event(profile_id: str, tenant_id: str, data: EventCreate, envir
             slug,
             extra_attrs_json,
             data.legal_info_id,
-            environment
+            environment,
+            data.commission_percentage
         )
 
         logger.info(f"Created event: {row['id']} - {data.cluster_name} (tenant: {tenant_id}, env: {environment})")

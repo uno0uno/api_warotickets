@@ -3,7 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser, get_environment
 from app.models.event import (
-    Event, EventCreate, EventUpdate, EventSummary,
+    Event, EventCreate, EventUpdate, EventUpdateResponse, EventSummary,
     EventImageCreate, EventImage, LegalInfoCreate, LegalInfo
 )
 from app.models.event_image import (
@@ -69,7 +69,7 @@ async def create_event(
     return event
 
 
-@router.patch("/{event_id}", response_model=Event)
+@router.patch("/{event_id}", response_model=EventUpdateResponse)
 async def update_event(
     event_id: int,
     data: EventUpdate,
@@ -79,11 +79,24 @@ async def update_event(
     Update an existing event.
 
     Only updates event information. Areas should be managed separately via /areas endpoints.
+
+    If `commission_percentage` is changed while the event is active, the response includes
+    a `warning` field noting that only future sales are affected.
     """
+    warning = None
+    if data.commission_percentage is not None:
+        current = await events_service.get_event_by_id(event_id, user.tenant_id)
+        if current and current.is_active:
+            warning = (
+                f"El evento está activo. El nuevo porcentaje de comisión "
+                f"({data.commission_percentage}%) solo aplica a nuevas ventas. "
+                "Las comisiones ya registradas no se recalculan."
+            )
+
     event = await events_service.update_event(event_id, user.tenant_id, data)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    return event
+    return EventUpdateResponse(**event.model_dump(), warning=warning)
 
 
 @router.delete("/{event_id}", status_code=204)

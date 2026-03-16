@@ -37,6 +37,7 @@ class EventCreate(EventBase):
     """Schema para crear un evento"""
     slug_cluster: Optional[str] = Field(None, description="Slug unico del evento (se genera automaticamente si no se proporciona)")
     legal_info_id: Optional[int] = Field(None, description="ID de la info legal del organizador")
+    commission_percentage: float = Field(default=10.0, ge=0, le=100, description="Porcentaje de comisión para promotores (0-100)")
 
     @model_validator(mode='after')
     def validate_dates(self):
@@ -69,6 +70,7 @@ class EventUpdate(BaseModel):
     is_active: Optional[bool] = None
     shadowban: Optional[bool] = None
     legal_info_id: Optional[int] = None
+    commission_percentage: Optional[float] = Field(default=None, ge=0, le=100, description="Porcentaje de comisión para promotores (0-100)")
 
     @model_validator(mode='after')
     def validate_dates(self):
@@ -114,6 +116,7 @@ class Event(EventBase):
     is_active: bool = True
     shadowban: bool = False
     legal_info_id: Optional[int] = None
+    commission_percentage: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 
@@ -125,6 +128,11 @@ class Event(EventBase):
 
     class Config:
         from_attributes = True
+
+
+class EventUpdateResponse(Event):
+    """Respuesta del PATCH /events/{id} — extiende Event con advertencia opcional"""
+    warning: Optional[str] = None
 
 
 class FeaturedPromotion(BaseModel):
@@ -231,6 +239,7 @@ class EventCreateWithAreas(EventBase):
     """Create event with nested areas in a single request"""
     slug_cluster: Optional[str] = None
     legal_info_id: Optional[int] = None
+    commission_percentage: float = Field(default=10.0, ge=0, le=100, description="Porcentaje de comisión para promotores (0-100)")
     areas: Optional[List[AreaCreateNested]] = Field(default=None, description="Areas to create with the event")
 
 
@@ -267,6 +276,7 @@ class EventUpdateWithAreas(BaseModel):
     extra_attributes: Optional[dict] = None
     is_active: Optional[bool] = None
     legal_info_id: Optional[int] = None
+    commission_percentage: Optional[float] = Field(default=None, ge=0, le=100, description="Porcentaje de comisión para promotores (0-100)")
     areas: Optional[List[AreaUpdateNested]] = Field(default=None, description="Areas to update/create/delete")
 
 
