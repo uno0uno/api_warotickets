@@ -254,15 +254,17 @@ async def update_area(
     tenant_id: str,
     data: AreaUpdate
 ) -> Optional[Area]:
-    """Update an existing area
+    """Update an existing area.
 
-    Campos NO editables (se pactan al crear):
-    - capacity, price, nomenclature_letter, unit_capacity, service
+    Si cambia capacity o price, recalcula clusters.total_capacity (si aplica)
+    y el service fee de TODAS las áreas del cluster.
+    Si capacity aumenta, genera las units adicionales.
+    Si capacity baja, valida que no haya más unidades activas que la nueva capacidad.
     """
     async with get_db_connection() as conn:
-        # Verify ownership, tenant and cluster
+        # Verify ownership, tenant and cluster; fetch current capacity for comparison
         existing = await conn.fetchrow("""
-            SELECT a.id FROM areas a
+            SELECT a.id, a.capacity FROM areas a
             JOIN clusters c ON a.cluster_id = c.id
             WHERE a.id = $1 AND a.cluster_id = $2 AND c.tenant_id = $3
         """, area_id, cluster_id, tenant_id)
@@ -271,6 +273,25 @@ async def update_area(
             return None
 
         update_data = data.model_dump(exclude_unset=True)
+
+        # Validate capacity reduction doesn't strand sold/reserved units
+        if 'capacity' in update_data:
+            new_capacity = update_data['capacity']
+            old_capacity = existing['capacity']
+            if new_capacity < old_capacity:
+                active_units = await conn.fetchval("""
+                    SELECT COUNT(*) FROM units
+                    WHERE area_id = $1 AND status IN ('sold', 'reserved')
+                """, area_id)
+                if active_units > new_capacity:
+                    raise ValidationError(
+                        f"No se puede reducir capacidad a {new_capacity}: "
+                        f"hay {active_units} unidades vendidas/reservadas",
+                        {"active_units": int(active_units), "new_capacity": new_capacity}
+                    )
+
+        # service is always recalculated — never accept client-provided value
+        update_data.pop('service', None)
 
         # Build dynamic update query
         update_fields = []
@@ -301,6 +322,44 @@ async def update_area(
         params.append(area_id)
 
         await conn.fetchrow(query, *params)
+
+        # Recalculate cluster service fees if capacity or price changed
+        capacity_changed = 'capacity' in update_data
+        price_changed = 'price' in update_data
+
+        if capacity_changed or price_changed:
+            # Source of truth: sum from DB after the UPDATE above
+            new_total_capacity = await conn.fetchval("""
+                SELECT COALESCE(SUM(capacity), 0) FROM areas
+                WHERE cluster_id = $1 AND status != 'disabled'
+            """, cluster_id)
+
+            if capacity_changed:
+                await conn.execute(
+                    "UPDATE clusters SET total_capacity = $1 WHERE id = $2",
+                    new_total_capacity, cluster_id
+                )
+                # Generate additional units if capacity increased
+                new_cap = update_data['capacity']
+                old_cap = existing['capacity']
+                if new_cap > old_cap:
+                    nomenclature = await conn.fetchval(
+                        "SELECT nomenclature_letter FROM areas WHERE id = $1", area_id
+                    )
+                    await _generate_units_for_area(
+                        conn, area_id, new_cap - old_cap, nomenclature or ""
+                    )
+                    logger.info(
+                        f"Generated {new_cap - old_cap} additional units for area {area_id} "
+                        f"(capacity: {old_cap} → {new_cap})"
+                    )
+
+            await _recalculate_cluster_service_fees(conn, cluster_id, new_total_capacity)
+            logger.info(
+                f"Recalculated service fees for cluster {cluster_id} "
+                f"(total_capacity: {new_total_capacity}, "
+                f"trigger: {'capacity' if capacity_changed else 'price'})"
+            )
 
         return await get_area_by_id(cluster_id, area_id, profile_id, tenant_id)
 

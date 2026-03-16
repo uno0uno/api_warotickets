@@ -31,17 +31,21 @@ class AreaCreate(AreaBase):
 
 
 class AreaUpdate(BaseModel):
-    """Schema para actualizar un area
+    """Schema para actualizar un area.
 
-    Campos NO editables (se pactan al crear):
-    - capacity: Afecta el tier de servicio
-    - price: Precio pactado
-    - nomenclature_letter: Identificador de boletas
+    Campos editables con efecto en service fee:
+    - capacity: Al cambiar, recalcula clusters.total_capacity y el fee de todas las áreas
+    - price: Al cambiar, recalcula el fee de todas las áreas del cluster
+
+    Campos NO editables:
+    - nomenclature_letter: Identificador impreso en boletas
     - unit_capacity: Configuracion de mesas/palcos
-    - service: Ahora es dinamico segun volumen
+    - service: Siempre calculado automáticamente (nunca enviado por el cliente)
     """
     area_name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
+    capacity: Optional[int] = Field(None, gt=0, description="Capacidad total del area")
+    price: Optional[Decimal] = Field(None, ge=0, description="Precio base por unidad")
     currency: Optional[str] = None
     status: Optional[str] = None
     extra_attributes: Optional[dict] = None

@@ -2,11 +2,15 @@
 Tests para endpoints de áreas.
 """
 import pytest
+from decimal import Decimal
 from httpx import AsyncClient
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from tests.utils.factories import AreaFactory, EventFactory
 from tests.utils.mocks import MockDBConnection, MockDBContextManager, mock_authenticated_user
+from app.services import areas_service
+from app.models.area import AreaUpdate
+from app.core.exceptions import ValidationError
 
 
 class TestListAreas:
@@ -151,3 +155,113 @@ class TestDeleteArea:
                 response = await client.delete("/areas/1")
 
         assert response.status_code == 204
+
+
+class TestUpdateAreaServiceFees:
+    """Tests para la recalculación de service fees al editar capacity o price."""
+
+    def _area_row(self, **kwargs) -> dict:
+        """Crea un dict compatible con el modelo Area."""
+        defaults = {
+            "id": 1, "cluster_id": 1, "area_name": "VIP",
+            "description": None, "capacity": 100, "price": 100000,
+            "currency": "COP", "status": "available",
+            "nomenclature_letter": "V", "unit_capacity": None,
+            "service": 3681.0, "extra_attributes": {},
+            "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        }
+        defaults.update(kwargs)
+        return defaults
+
+    def _make_conn(self, existing_capacity: int = 100, fetchval_side_effect=None):
+        """Construye un MockDBConnection pre-configurado para update_area."""
+        mock_conn = MockDBConnection()
+        # Ownership check returns area with current capacity
+        mock_conn.set_fetchrow_return(
+            "SELECT a.id, a.capacity FROM areas",
+            {"id": 1, "capacity": existing_capacity}
+        )
+        # UPDATE areas RETURNING * — used by update_area() dynamic query
+        mock_conn.set_fetchrow_return("UPDATE areas", self._area_row(capacity=existing_capacity))
+        # get_area_by_id final fetch (JOIN clusters query)
+        mock_conn.set_fetchrow_return("JOIN clusters", self._area_row())
+
+        # executemany needed by _generate_units_for_area
+        mock_conn.executemany = AsyncMock(return_value=None)
+
+        if fetchval_side_effect:
+            mock_conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+        else:
+            mock_conn.fetchval = AsyncMock(return_value=0)
+
+        return mock_conn
+
+    @pytest.mark.asyncio
+    async def test_update_price_triggers_recalculation(self):
+        """Al cambiar price, _recalculate_cluster_service_fees debe ejecutarse."""
+        mock_conn = self._make_conn(fetchval_side_effect=[500])  # total_capacity = 500
+
+        # Patch at the service module level (areas_service already imported get_db_connection)
+        with patch('app.services.areas_service.get_db_connection', return_value=MockDBContextManager(mock_conn)):
+            data = AreaUpdate(price=Decimal('250000'))
+            await areas_service.update_area(1, 1, "profile-1", "tenant-1", data)
+
+        assert mock_conn.was_called_with("execute", "SET service = CASE")
+
+    @pytest.mark.asyncio
+    async def test_update_capacity_syncs_cluster_total_capacity(self):
+        """Al cambiar capacity, clusters.total_capacity se actualiza."""
+        mock_conn = self._make_conn(
+            existing_capacity=100,
+            fetchval_side_effect=[0, 350, None]  # active_units check, new_total_capacity, nomenclature
+        )
+
+        with patch('app.services.areas_service.get_db_connection', return_value=MockDBContextManager(mock_conn)):
+            data = AreaUpdate(capacity=150)
+            await areas_service.update_area(1, 1, "profile-1", "tenant-1", data)
+
+        assert mock_conn.was_called_with("execute", "UPDATE clusters SET total_capacity")
+
+    @pytest.mark.asyncio
+    async def test_update_capacity_triggers_recalculation_of_all_areas(self):
+        """Escenario tier: total 400 → 600 → tier cambia de 500 a 2000 (fee baja de 1290 a 1190)."""
+        # total_capacity after update = 600 → tier is 501-2000 → fixed fee $1,190
+        mock_conn = self._make_conn(
+            existing_capacity=200,
+            fetchval_side_effect=[0, 600, None]  # active_units=0, new_total=600, nomenclature=None
+        )
+
+        with patch('app.services.areas_service.get_db_connection', return_value=MockDBContextManager(mock_conn)):
+            data = AreaUpdate(capacity=400)  # 200 → 400, cluster total 400 → 600
+            await areas_service.update_area(1, 1, "profile-1", "tenant-1", data)
+
+        assert mock_conn.was_called_with("execute", "SET service = CASE")
+        assert mock_conn.was_called_with("execute", "UPDATE clusters SET total_capacity")
+
+    @pytest.mark.asyncio
+    async def test_update_capacity_reduction_blocked_when_active_units_exceed_new_cap(self):
+        """No permite reducir capacity si hay más unidades activas que la nueva capacidad."""
+        mock_conn = self._make_conn(
+            existing_capacity=200,
+            fetchval_side_effect=[150]  # 150 active (sold/reserved) units
+        )
+
+        with patch('app.services.areas_service.get_db_connection', return_value=MockDBContextManager(mock_conn)):
+            data = AreaUpdate(capacity=100)  # Trying to reduce to 100 but 150 are active
+            with pytest.raises(ValidationError) as exc_info:
+                await areas_service.update_area(1, 1, "profile-1", "tenant-1", data)
+
+        assert "150" in str(exc_info.value)
+        assert "100" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_update_non_price_capacity_fields_skip_recalculation(self):
+        """Cambiar area_name o description NO llama a _recalculate_cluster_service_fees."""
+        mock_conn = self._make_conn()
+
+        with patch('app.services.areas_service.get_db_connection', return_value=MockDBContextManager(mock_conn)):
+            data = AreaUpdate(area_name="Nuevo Nombre", description="Nueva descripción")
+            await areas_service.update_area(1, 1, "profile-1", "tenant-1", data)
+
+        mock_conn.fetchval.assert_not_called()
+        assert not mock_conn.was_called_with("execute", "UPDATE clusters SET total_capacity")
