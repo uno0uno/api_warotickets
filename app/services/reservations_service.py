@@ -1135,7 +1135,8 @@ async def get_my_invoices(user_id: str) -> list:
                 if isinstance(snapshot, str):
                     snapshot = json.loads(snapshot)
 
-                base_price = float(td['base_price'] or 0)
+                # Prefer snapshot base_price (historical) over a.price (live)
+                base_price = float(snapshot.get('base_price') or td['base_price'] or 0)
 
                 # Use snapshot price if available, fallback to base price
                 if td['unit_price_paid'] is not None:
@@ -1232,6 +1233,7 @@ async def get_my_invoice_detail(user_id: str, payment_id: int) -> dict | None:
                 c.cluster_name as event_name,
                 c.slug_cluster as event_slug,
                 c.start_date as event_date,
+                c.total_capacity as cluster_total_capacity,
                 r.id as reservation_id,
                 r.reservation_date
             FROM payments p
@@ -1273,7 +1275,8 @@ async def get_my_invoice_detail(user_id: str, payment_id: int) -> dict | None:
             if isinstance(snapshot, str):
                 snapshot = json.loads(snapshot)
 
-            base_price = float(td['base_price'] or 0)
+            # Prefer snapshot base_price (historical) over a.price (live)
+            base_price = float(snapshot.get('base_price') or td['base_price'] or 0)
 
             if td['unit_price_paid'] is not None:
                 unit_price = float(td['unit_price_paid'])
@@ -1414,6 +1417,7 @@ async def get_my_invoice_detail(user_id: str, payment_id: int) -> dict | None:
             "event_name": pay['event_name'] or '',
             "event_slug": pay['event_slug'] or '',
             "event_date": pay['event_date'].isoformat() if pay['event_date'] else None,
+            "cluster_total_capacity": pay['cluster_total_capacity'] or 0,
             "reservation_id": str(pay['reservation_id']),
             "reservation_date": pay['reservation_date'].isoformat() if pay['reservation_date'] else None,
             "ticket_count": ticket_count,

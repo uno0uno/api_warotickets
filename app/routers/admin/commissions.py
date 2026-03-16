@@ -149,10 +149,10 @@ async def list_all_commissions(
                     ELSE '5001+'
                 END as service_fee_tier,
                 p.customer_email,
-                p.customer_name,
+                p.customer_data->>'full_name' as customer_name,
                 tm.user_id,
                 prof.email as promoter_email,
-                prof.full_name as promoter_name
+                prof.name as promoter_name
             FROM order_commissions oc
             LEFT JOIN clusters c ON c.id = oc.cluster_id
             LEFT JOIN payments p ON p.id = oc.payment_id
@@ -250,7 +250,7 @@ async def get_commission_detail(
                 oc.*,
                 c.cluster_name,
                 c.cluster_name as event_name,
-                c.event_date,
+                c.start_date as event_date,
                 c.commission_percentage as cluster_commission_percentage,
                 CASE
                     WHEN c.total_capacity <= 500   THEN '1-500'
@@ -259,14 +259,14 @@ async def get_commission_detail(
                     ELSE '5001+'
                 END as service_fee_tier,
                 p.customer_email,
-                p.customer_name,
+                p.customer_data->>'full_name' as customer_name,
                 p.amount as payment_amount,
                 p.status as payment_status,
                 tm.user_id,
                 prof.email as promoter_email,
-                prof.full_name as promoter_name,
+                prof.name as promoter_name,
                 approver.email as approved_by_email,
-                approver.full_name as approved_by_name
+                approver.name as approved_by_name
             FROM order_commissions oc
             LEFT JOIN clusters c ON c.id = oc.cluster_id
             LEFT JOIN payments p ON p.id = oc.payment_id

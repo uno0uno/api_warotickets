@@ -36,6 +36,7 @@ class MyInvoice(BaseModel):
     event_name: str
     event_slug: str
     event_date: Optional[str] = None
+    cluster_total_capacity: int = 0
     reservation_id: str
     ticket_count: int
     tickets: List[InvoiceTicketDetail]
