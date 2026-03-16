@@ -79,21 +79,35 @@ async def record_commission(
             total_base_price += Decimal(str(row['unit_price_paid']))
             total_tickets += 1
 
-        # Obtener % de comisión desde promoter_event_configs (único origen)
-        event_config = await conn.fetchrow("""
-            SELECT commission_percentage
-            FROM promoter_event_configs
-            WHERE promoter_code_id = $1 AND cluster_id = $2 AND is_active = true
+        # Obtener % de comisión: override en promoter_event_configs > default del cluster
+        # Un único query COALESCE resuelve la prioridad sin dos roundtrips
+        commission_row = await conn.fetchrow("""
+            SELECT COALESCE(
+                (SELECT pec.commission_percentage
+                 FROM promoter_event_configs pec
+                 WHERE pec.promoter_code_id = $1 AND pec.cluster_id = $2 AND pec.is_active = true),
+                c.commission_percentage
+            ) AS commission_percentage,
+            EXISTS(
+                SELECT 1 FROM promoter_event_configs pec
+                WHERE pec.promoter_code_id = $1 AND pec.cluster_id = $2 AND pec.is_active = true
+            ) AS has_override
+            FROM clusters c
+            WHERE c.id = $2
         """, data['promoter_code_id'], data['cluster_id'])
 
-        if not event_config or event_config['commission_percentage'] is None:
-            logger.info(
-                f"No event config for promoter {data['promoter_code_id']} "
-                f"cluster {data['cluster_id']}, skipping commission"
+        if not commission_row:
+            logger.error(
+                f"Cluster {data['cluster_id']} not found for reservation {reservation_id}"
             )
             return None
 
-        commission_pct = Decimal(str(event_config['commission_percentage']))
+        commission_pct = Decimal(str(commission_row['commission_percentage']))
+        source = "promoter_event_configs override" if commission_row['has_override'] else "cluster default"
+        logger.info(
+            f"Commission percentage {commission_pct}% resolved from {source} "
+            f"(promoter: {data['promoter_code_id']}, cluster: {data['cluster_id']})"
+        )
 
         # Calcular comisión
         commission_amount = (
