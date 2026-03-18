@@ -9,6 +9,7 @@ from unittest.mock import patch, AsyncMock
 from tests.utils.factories import AreaFactory, EventFactory
 from tests.utils.mocks import MockDBConnection, MockDBContextManager, mock_authenticated_user
 from app.services import areas_service
+from app.services.areas_service import calculate_service_fee
 from app.models.area import AreaUpdate
 from app.core.exceptions import ValidationError
 
@@ -264,3 +265,32 @@ class TestUpdateAreaServiceFees:
 
         mock_conn.fetchval.assert_not_called()
         assert not mock_conn.was_called_with("execute", "UPDATE clusters SET total_capacity")
+
+
+class TestCalculateServiceFee:
+    """Tests unitarios para calculate_service_fee() — fórmula plana price * 3.26% + $1,894."""
+
+    def test_fee_boleta_economica(self):
+        """$30,000 → fee = ROUND(30000*0.0326 + 1894) = $2,872"""
+        fee = calculate_service_fee(Decimal('30000'))
+        assert fee == Decimal('2872')
+
+    def test_fee_boleta_media(self):
+        """$100,000 → fee = ROUND(100000*0.0326 + 1894) = $5,154"""
+        fee = calculate_service_fee(Decimal('100000'))
+        assert fee == Decimal('5154')
+
+    def test_fee_boleta_premium(self):
+        """$300,000 → fee = ROUND(300000*0.0326 + 1894) = $11,674"""
+        fee = calculate_service_fee(Decimal('300000'))
+        assert fee == Decimal('11674')
+
+    def test_fee_gratuita(self):
+        """Precio $0 → fee = $0"""
+        fee = calculate_service_fee(Decimal('0'))
+        assert fee == Decimal('0')
+
+    def test_fee_precio_negativo(self):
+        """Precio negativo → fee = $0 (guard)"""
+        fee = calculate_service_fee(Decimal('-1000'))
+        assert fee == Decimal('0')
