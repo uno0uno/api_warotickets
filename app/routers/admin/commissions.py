@@ -142,12 +142,6 @@ async def list_all_commissions(
                 c.cluster_name,
                 c.cluster_name as event_name,
                 c.commission_percentage as cluster_commission_percentage,
-                CASE
-                    WHEN c.total_capacity <= 500   THEN '1-500'
-                    WHEN c.total_capacity <= 2000  THEN '501-2000'
-                    WHEN c.total_capacity <= 5000  THEN '2001-5000'
-                    ELSE '5001+'
-                END as service_fee_tier,
                 p.customer_email,
                 p.customer_data->>'full_name' as customer_name,
                 tm.user_id,
@@ -252,12 +246,6 @@ async def get_commission_detail(
                 c.cluster_name as event_name,
                 c.start_date as event_date,
                 c.commission_percentage as cluster_commission_percentage,
-                CASE
-                    WHEN c.total_capacity <= 500   THEN '1-500'
-                    WHEN c.total_capacity <= 2000  THEN '501-2000'
-                    WHEN c.total_capacity <= 5000  THEN '2001-5000'
-                    ELSE '5001+'
-                END as service_fee_tier,
                 p.customer_email,
                 p.customer_data->>'full_name' as customer_name,
                 p.amount as payment_amount,
