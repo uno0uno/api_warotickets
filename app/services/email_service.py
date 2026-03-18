@@ -68,14 +68,15 @@ async def send_email(
 
 async def send_transfer_notification(
     recipient_email: str,
-    sender_name: str,
+    sender_name: Optional[str],
     event_name: str,
     event_date: Optional[datetime],
     area_name: str,
     unit_display_name: str,
     transfer_token: str,
     message: Optional[str] = None,
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None,
+    recipient_name: Optional[str] = None
 ) -> bool:
     """Send transfer notification email to recipient (plain text, same style as purchase confirmation)"""
     try:
@@ -84,9 +85,12 @@ async def send_transfer_notification(
         event_date_str = _fmt_dt(event_date, '%d de %B de %Y a las %H:%M') if event_date else 'Por confirmar'
         expires_str = _fmt_dt(expires_at, '%d/%m/%Y a las %H:%M') if expires_at else '48 horas'
 
-        text_body = f"""Hola!
+        greeting = f"Hola, {recipient_name}!" if recipient_name else "Hola!"
+        sender_line = f"{sender_name} quiere transferirte un boleto en WaRo Tickets." if sender_name else "Te transfirieron una boleta en WaRo Tickets."
 
-{sender_name} quiere transferirte un boleto en WaRo Tickets.
+        text_body = f"""{greeting}
+
+{sender_line}
 
 DETALLE DEL BOLETO
 --------------------

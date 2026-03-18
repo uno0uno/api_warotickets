@@ -141,14 +141,15 @@ async def initiate_transfer(
         # Send notification email to recipient
         await send_transfer_notification(
             recipient_email=data.recipient_email,
-            sender_name=ticket['owner_name'] or 'Un usuario',
+            sender_name=ticket['owner_name'] or None,
             event_name=ticket['cluster_name'],
             event_date=ticket['start_date'],
             area_name=ticket['area_name'],
             unit_display_name=display_name,
             transfer_token=transfer_token,
             message=data.message,
-            expires_at=expires_at
+            expires_at=expires_at,
+            recipient_name=recipient['name'] or None
         )
 
         return Transfer(
@@ -249,7 +250,7 @@ async def resend_transfer(user_id: str, reservation_unit_id: int) -> bool:
 
         await send_transfer_notification(
             recipient_email=recipient_email,
-            sender_name=transfer['owner_name'] or 'Un usuario',
+            sender_name=transfer['owner_name'] or None,
             event_name=transfer['cluster_name'],
             event_date=transfer['start_date'],
             area_name=transfer['area_name'],
