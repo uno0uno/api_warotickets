@@ -224,8 +224,7 @@ class TestUpdateAreaServiceFees:
 
     @pytest.mark.asyncio
     async def test_update_capacity_triggers_recalculation_of_all_areas(self):
-        """Escenario tier: total 400 → 600 → tier cambia de 500 a 2000 (fee baja de 1290 a 1190)."""
-        # total_capacity after update = 600 → tier is 501-2000 → fixed fee $1,190
+        """Al cambiar capacity, _recalculate_cluster_service_fees se ejecuta para el cluster."""
         mock_conn = self._make_conn(
             existing_capacity=200,
             fetchval_side_effect=[0, 600, None]  # active_units=0, new_total=600, nomenclature=None

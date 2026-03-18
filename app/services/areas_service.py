@@ -13,61 +13,40 @@ logger = logging.getLogger(__name__)
 
 
 # Service fee configuration (from COTIZACION_WARO_TICKETS_2026.pdf)
-# Formula: price * 2.39% + fixed_fee (varies by capacity tier)
-SERVICE_FEE_RATE = Decimal('0.0239')
-SERVICE_FEE_TIERS = [
-    (500, Decimal('1290')),      # 1-500 capacity: $1,290 fixed
-    (2000, Decimal('1190')),     # 501-2,000 capacity: $1,190 fixed
-    (5000, Decimal('1090')),     # 2,001-5,000 capacity: $1,090 fixed
-    (999999, Decimal('990'))     # 5,000+ capacity: $990 fixed
-]
+# Formula: price * 3.26% + $1,894 fixed (flat — no capacity tiers)
+SERVICE_FEE_RATE  = Decimal('0.0326')
+SERVICE_FEE_FIXED = Decimal('1894')
 
 
-def calculate_service_fee(price: Decimal, cluster_total_capacity: int) -> Decimal:
+def calculate_service_fee(price: Decimal) -> Decimal:
     """
-    Calculate service fee per ticket based on price and cluster total capacity tier.
-    Fee = price * 2.39% + fixed_fee (based on cluster total capacity tier)
-    Returns the fee amount per ticket.
-
-    Uses cluster total capacity (sum of all areas) so that all areas in the same
-    event fall into the same tier, regardless of individual area size.
+    Calculate service fee per ticket.
+    Fee = price * 3.26% + $1,894 fixed, rounded to nearest peso.
+    Returns 0 for free tickets.
     """
     if price <= 0:
         return Decimal('0')
-
-    # Determine fixed fee based on cluster total capacity tier
-    fixed_fee = Decimal('1290')  # Default to smallest tier
-    for max_capacity, fee in SERVICE_FEE_TIERS:
-        if cluster_total_capacity <= max_capacity:
-            fixed_fee = fee
-            break
-
-    # Calculate: price * 2.39% + fixed_fee (rounded to nearest peso)
-    service_fee = (price * SERVICE_FEE_RATE + fixed_fee).quantize(Decimal('1'))
-    return max(Decimal('0'), service_fee)
+    return (price * SERVICE_FEE_RATE + SERVICE_FEE_FIXED).quantize(Decimal('1'))
 
 
-async def _recalculate_cluster_service_fees(conn, cluster_id: int, total_capacity: int) -> None:
+async def _recalculate_cluster_service_fees(conn, cluster_id: int) -> None:
     """
-    Recalculate areas.service for ALL active areas in a cluster using the cluster
-    total capacity tier. Executed as a single UPDATE query — no Python loop needed.
+    Recalculate areas.service for ALL active areas in a cluster using the flat fee formula.
+    Executed as a single UPDATE query — no Python loop needed.
 
-    Called whenever the cluster's total capacity changes (area created or deleted).
+    Called whenever area price or capacity changes (area created, updated, or deleted).
     Areas with price = 0 keep service = 0.
     """
     await conn.execute("""
         UPDATE areas
         SET service = CASE
             WHEN price <= 0 THEN 0
-            WHEN $2 <= 500   THEN ROUND((price * 0.0239 + 1290)::numeric, 0)
-            WHEN $2 <= 2000  THEN ROUND((price * 0.0239 + 1190)::numeric, 0)
-            WHEN $2 <= 5000  THEN ROUND((price * 0.0239 + 1090)::numeric, 0)
-            ELSE                  ROUND((price * 0.0239 + 990)::numeric, 0)
+            ELSE ROUND((price * 0.0326 + 1894)::numeric, 0)
         END,
         updated_at = NOW()
         WHERE cluster_id = $1
           AND status != 'disabled'
-    """, cluster_id, total_capacity)
+    """, cluster_id)
 
 
 def _parse_extra_attributes(value):
@@ -193,11 +172,8 @@ async def create_area(
         extra_attrs = data.extra_attributes if data.extra_attributes else {}
 
         # Calculate service fee using cluster total capacity (not individual area capacity)
-        service_fee = calculate_service_fee(Decimal(str(data.price)), new_total_capacity)
-        logger.info(
-            f"Calculated service fee for area: ${service_fee} "
-            f"(price: ${data.price}, cluster_total_capacity: {new_total_capacity})"
-        )
+        service_fee = calculate_service_fee(Decimal(str(data.price)))
+        logger.info(f"Calculated service fee for area: ${service_fee} (price: ${data.price})")
 
         row = await conn.fetchrow("""
             INSERT INTO areas (
@@ -229,7 +205,7 @@ async def create_area(
             "UPDATE clusters SET total_capacity = $1 WHERE id = $2",
             new_total_capacity, cluster_id
         )
-        await _recalculate_cluster_service_fees(conn, cluster_id, new_total_capacity)
+        await _recalculate_cluster_service_fees(conn, cluster_id)
 
         # Always generate units based on capacity
         await _generate_units_for_area(
@@ -354,11 +330,10 @@ async def update_area(
                         f"(capacity: {old_cap} → {new_cap})"
                     )
 
-            await _recalculate_cluster_service_fees(conn, cluster_id, new_total_capacity)
+            await _recalculate_cluster_service_fees(conn, cluster_id)
             logger.info(
                 f"Recalculated service fees for cluster {cluster_id} "
-                f"(total_capacity: {new_total_capacity}, "
-                f"trigger: {'capacity' if capacity_changed else 'price'})"
+                f"(trigger: {'capacity' if capacity_changed else 'price'})"
             )
 
         return await get_area_by_id(cluster_id, area_id, profile_id, tenant_id)
@@ -416,7 +391,7 @@ async def delete_area(
                 "UPDATE clusters SET total_capacity = $1 WHERE id = $2",
                 new_total_capacity, cluster_id
             )
-            await _recalculate_cluster_service_fees(conn, cluster_id, new_total_capacity)
+            await _recalculate_cluster_service_fees(conn, cluster_id)
 
         return deleted
 
