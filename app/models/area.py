@@ -21,7 +21,7 @@ class AreaBase(BaseModel):
     currency: str = Field(default="COP", description="Moneda (COP, USD)")
     nomenclature_letter: Optional[str] = Field(None, max_length=10, description="Letra de nomenclatura (ej: A, B, VIP)")
     unit_capacity: Optional[int] = Field(None, description="Capacidad por unidad (para mesas/palcos)")
-    service: Optional[float] = Field(None, ge=0, description="Cargo por servicio (porcentaje)")
+    service: Optional[float] = Field(None, ge=0, description="Cargo fijo por servicio por boleta en COP (calculado automáticamente)")
     extra_attributes: Optional[dict] = Field(default_factory=dict, description="Atributos adicionales")
 
 

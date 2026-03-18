@@ -48,7 +48,7 @@ async def calculate_area_price(
 
         base_price = Decimal(str(area['price']))
         currency = area['currency'] or 'COP'
-        service_percentage = Decimal(str(area['service'] or 0))
+        service_fee_per_ticket = Decimal(str(area['service'] or 0))
 
         # Get active sale stage
         stage = await get_active_sale_stage(area_id)
@@ -77,7 +77,7 @@ async def calculate_area_price(
         # Calculate totals
         tickets_count = quantity * bundle_size
         subtotal = unit_price * tickets_count
-        service_fee = subtotal * service_percentage / 100
+        service_fee = service_fee_per_ticket * tickets_count
         final_price = subtotal + service_fee
 
         return {
