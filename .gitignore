@@ -36,7 +36,7 @@ env/
 # Environment
 .env
 .env.prod
-.env.dev
+.env.staging
 .env.local
 .env.*.local
 !.env.example

@@ -10,8 +10,8 @@ from app.core.promoter_dependencies import require_promoter_access
 from app.core.dependencies import get_environment
 from app.services import promoter_codes_service, commissions_service
 from app.database import get_db_connection
+from app.config import settings
 import logging
-import os
 
 router = APIRouter(tags=["promoters"])
 logger = logging.getLogger(__name__)
@@ -67,15 +67,12 @@ async def get_my_code(
         tenant_id=tenant_id
     )
 
-    # Get frontend URL from environment
-    frontend_url = os.getenv('FRONTEND_URL', 'https://warotickets.com')
-
     return PromoterCodeResponse(
         code=code['code'],
         commission_percentage=code.get('commission_percentage'),
         role=access['role'],
         example_urls=[
-            f"{frontend_url}/eventos/cualquier-evento?WRPROM={code['code']}"
+            f"{settings.frontend_url}/eventos/cualquier-evento?WRPROM={code['code']}"
         ]
     )
 
