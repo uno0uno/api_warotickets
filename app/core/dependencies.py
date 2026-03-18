@@ -164,4 +164,4 @@ def get_environment() -> str:
     env = settings.app_env
     logger.info(f"get_environment() called - APP_ENV from settings: '{env}'")
     # Normalize to only allow 'dev' or 'prod'
-    return "dev" if env == "dev" else "prod"
+    return "dev" if env in ("dev", "local") else "prod"
