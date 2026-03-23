@@ -39,13 +39,12 @@ def get_lead_confirmation_template(name: str, email: str) -> str:
 
         <br>
         ----<br>
-        Anderson Arevalo<br>
+        Saifer 101 (Anderson Arevalo)<br>
         Fundador WaRo Tickets<br>
-        Direccion: <a href="https://maps.app.goo.gl/CjipiqrV2iYUx2fa8">Calle 39F # 68F - 66 Sur</a><br>
         Bogota, D.C, Colombia<br>
         Tel: 3142047013<br>
-        Correo: <a href="mailto:anderson.arevalo@warotickets.com">anderson.arevalo@warotickets.com</a><br>
-        Tu evento, tu publico, tu exito.
+        Correo: <a href="mailto:anderson.arevalo@warolabs.com">anderson.arevalo@warolabs.com</a><br>
+        Tecnologia colombiana para el mundo.
 
     </div>
 </body>
