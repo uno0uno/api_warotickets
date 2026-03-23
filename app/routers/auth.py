@@ -104,8 +104,8 @@ async def send_magic_link(data: MagicLinkRequest, request: Request):
 
         # Get tenant branding info
         tenant_info = {
-            'brand_name': tenant_context.brand_name if tenant_context else 'WaRo Tickets',
-            'tenant_name': tenant_context.tenant_name if tenant_context else 'WaRo Tickets',
+            'brand_name': (tenant_context.brand_name if tenant_context else None) or 'WaRo Tickets',
+            'tenant_name': (tenant_context.tenant_name if tenant_context else None) or 'WaRo Tickets',
             'admin_name': 'Saifer 101 (Anderson Arevalo)',
             'admin_email': 'anderson.arevalo@warotickets.com'
         }
