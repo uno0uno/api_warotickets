@@ -25,31 +25,19 @@ def get_lead_confirmation_template(name: str, email: str) -> str:
     <title>Solicitud recibida - WaRo Tickets</title>
 </head>
 <body style="font-family: Arial, sans-serif; color: black; margin: 0; padding: 0; text-align: left;">
-    <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+    <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
 
-        <p>Hola {display_name}!</p>
+        <p>Hola {display_name},</p>
 
-        <p>Recibimos tu solicitud para acceder como organizador en <strong>WaRo Tickets</strong>. Gracias por tu interes.</p>
+        <p>Recibimos tu solicitud para acceder como organizador en WaRo Tickets. Gracias por tu interes.</p>
 
         <p>Nuestro equipo revisara tu informacion y se pondra en contacto contigo en los proximos dias habiles para activar tu cuenta y darte acceso a la plataforma.</p>
 
-        <p>Mientras tanto, puedes explorar los eventos disponibles:</p>
+        <p>Si tienes alguna pregunta urgente, no dudes en responder a este correo.</p>
 
-        <p>
-            <a href="https://warotickets.com/eventos"
-               style="color: white; background-color: #7c3aed; padding: 12px 24px; border-radius: 8px;
-                      text-decoration: none; display: inline-block; font-weight: bold;">
-                Ver eventos
-            </a>
-        </p>
+        <p>Hasta pronto,<br>El equipo de WaRo Tickets</p>
 
-        <p style="margin-top: 24px; color: #555; font-size: 14px;">
-            Si tienes preguntas, puedes responder este correo o escribirnos directamente.
-        </p>
-
-        <p>Saludos del equipo de WaRo Tickets.</p>
-
-        <br><br>
+        <br>
         ----<br>
         Anderson Arevalo<br>
         Fundador WaRo Tickets<br>
