@@ -110,7 +110,7 @@ from app.routers import (
     events, areas, units, public,
     sale_stages, promotions, reservations, payments,
     qr, transfers, auth, tenants, ticket_cart, uploads,
-    promoters, invitations
+    promoters, invitations, leads
 )
 from app.routers.admin import promoters as admin_promoters, commissions as admin_commissions
 
@@ -156,6 +156,9 @@ app.include_router(admin_commissions.router, tags=["admin-commissions"])
 
 # Invitations (requires auth)
 app.include_router(invitations.router, tags=["invitations"])
+
+# Leads / solicitudes (public - no auth required)
+app.include_router(leads.router, prefix="/leads", tags=["leads"])
 
 @app.get("/")
 async def root():
