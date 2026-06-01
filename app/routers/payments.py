@@ -3,6 +3,8 @@ Payments Router - Wompi Gateway
 
 Integración con Wompi (wompi.co) para pagos en Colombia.
 """
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List, Optional
 from app.core.dependencies import get_authenticated_user, AuthenticatedUser
@@ -14,6 +16,20 @@ from app.services import payments_service
 from app.config import settings
 
 router = APIRouter()
+
+WOMPI_FORWARD_SECRET_HEADER = "X-Wompi-Forward-Secret"
+
+
+def _verify_wompi_forward_secret(provided: str) -> None:
+    """Validate internal forward from api.warocol.com Wompi router."""
+    expected = settings.wompi_webhook_forward_secret
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook forward secret not configured",
+        )
+    if len(provided) != len(expected) or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid forward secret")
 
 
 # ============================================================================
@@ -109,7 +125,20 @@ async def wompi_webhook(request: Request):
     Webhook endpoint for Wompi payment notifications.
 
     Wompi sends transaction.updated events with signature for verification.
+
+    **Transition:** When the merchant event URL points at api.warocol.com, the
+    central router forwards here with ``X-Wompi-Forward-Secret`` (must match
+    ``WOMPI_WEBHOOK_FORWARD_SECRET``). Direct Wompi posts without that header
+    remain accepted until Wompi cutover is verified — do not remove this route
+    as the sole ingress until then.
+
+    **Internal forward:** If ``X-Wompi-Forward-Secret`` is present, it is
+    validated before processing; invalid or missing server config returns 401/503.
     """
+    forward_secret = request.headers.get(WOMPI_FORWARD_SECRET_HEADER)
+    if forward_secret is not None:
+        _verify_wompi_forward_secret(forward_secret)
+
     event_data = await request.json()
     await payments_service.process_gateway_webhook('wompi', event_data)
     return {"status": "received"}
