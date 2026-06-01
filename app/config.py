@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     wompi_events_secret: Optional[str] = Field(default=None, alias='WOMPI_EVENTS_SECRET')
     wompi_integrity_secret: Optional[str] = Field(default=None, alias='WOMPI_INTEGRITY_SECRET')
     wompi_environment: str = Field(default='sandbox', alias='WOMPI_ENVIRONMENT')
+    # Shared with api.warocol.com Wompi router when forwarding Tickets webhooks (#46)
+    wompi_webhook_forward_secret: Optional[str] = Field(
+        default=None, alias='WOMPI_WEBHOOK_FORWARD_SECRET'
+    )
 
     # App settings
     app_env: str = Field(default="development", alias='APP_ENV')

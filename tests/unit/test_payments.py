@@ -3,7 +3,9 @@ Tests para endpoints de pagos.
 """
 import pytest
 from httpx import AsyncClient
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+from app.config import settings
 
 from tests.utils.factories import ReservationFactory, PaymentFactory
 from tests.utils.mocks import MockDBConnection, MockDBContextManager, mock_authenticated_user
@@ -177,3 +179,43 @@ class TestWompiWebhook:
             )
 
         assert response.status_code == 400
+
+
+class TestWompiWebhookForwardAuth:
+    """Internal auth for api.warocol.com → Tickets webhook forward (#46)."""
+
+    @pytest.mark.asyncio
+    async def test_forward_secret_invalid(self, client: AsyncClient):
+        with patch.object(settings, "wompi_webhook_forward_secret", "expected-secret"):
+            response = await client.post(
+                "/payments/webhooks/wompi",
+                json={"event": "transaction.updated"},
+                headers={"X-Wompi-Forward-Secret": "wrong-secret"},
+            )
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_forward_secret_valid(self, client: AsyncClient):
+        with patch.object(settings, "wompi_webhook_forward_secret", "expected-secret"):
+            with patch(
+                "app.services.payments_service.process_gateway_webhook",
+                new_callable=AsyncMock,
+            ) as mock_process:
+                response = await client.post(
+                    "/payments/webhooks/wompi",
+                    json={"event": "transaction.updated", "data": {}},
+                    headers={"X-Wompi-Forward-Secret": "expected-secret"},
+                )
+        assert response.status_code == 200
+        assert response.json() == {"status": "received"}
+        mock_process.assert_awaited_once_with("wompi", {"event": "transaction.updated", "data": {}})
+
+    @pytest.mark.asyncio
+    async def test_forward_secret_unconfigured(self, client: AsyncClient):
+        with patch.object(settings, "wompi_webhook_forward_secret", None):
+            response = await client.post(
+                "/payments/webhooks/wompi",
+                json={"event": "transaction.updated"},
+                headers={"X-Wompi-Forward-Secret": "any"},
+            )
+        assert response.status_code == 503

@@ -1,0 +1,33 @@
+# Machine contract for wr-fast — issue #46
+issue: 46
+title: "feat(payments): Accept forwarded Wompi webhooks from api.warocol.com router (internal auth)"
+repo: api_warotickets
+repo_remote: uno0uno/api_warotickets
+cwd: /Users/saifer/Documents/WEBS/WARO TICKETS/api_warotickets
+stack: fastapi
+branch: wr-46-wompi-forward-webhook
+epic: uno0uno/api-warolabs#351
+
+paths:
+  - app/routers/payments.py
+  - app/config.py
+  - .env.example
+  - tests/unit/test_payments.py
+
+ac:
+  - Internal auth (X-Wompi-Forward-Secret) validates requests from api.warocol.com router
+  - Forwarded body calls process_gateway_webhook('wompi', event_data) unchanged
+  - Public POST /payments/webhooks/wompi kept for transition
+  - Idempotency via was_already_approved guard in payments_service
+  - .env.example documents WOMPI_WEBHOOK_FORWARD_SECRET
+
+out_of_scope:
+  - Router implementation (api-warolabs #353)
+
+hints:
+  entry: "app/routers/payments.py — wompi_webhook"
+  pattern: "Warocol forwards to same URL with X-Wompi-Forward-Secret (wompi_webhook_router_service.py:96-100)"
+  tests: "pytest tests/unit/test_payments.py -v -k forward"
+
+skip:
+  audits: [ux, color, typography]
