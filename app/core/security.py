@@ -239,12 +239,6 @@ async def get_session_from_request(request: Request) -> Optional[dict]:
             if not session_result:
                 return None
 
-            await conn.execute("""
-                UPDATE sessions
-                SET last_activity_at = NOW()
-                WHERE id = $1
-            """, session_token)
-
             return {
                 'user_id': session_result['user_id'],
                 'tenant_id': session_result['tenant_id'],

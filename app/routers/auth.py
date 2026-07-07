@@ -412,12 +412,6 @@ async def get_session(request: Request, response: Response):
             response.delete_cookie(key="session-token", path="/")
             raise HTTPException(status_code=401, detail="Session expired")
 
-        # Update last activity
-        await conn.execute(
-            "UPDATE sessions SET last_activity_at = NOW() WHERE id = $1",
-            session_token
-        )
-
         # Get tenant info and user role in a single query
         current_tenant = None
         user_role = None
@@ -554,9 +548,9 @@ async def switch_tenant(data: SwitchTenantRequest, request: Request, response: R
         await conn.execute("""
             INSERT INTO sessions (
                 id, user_id, tenant_id, expires_at, ip_address,
-                user_agent, login_method, is_active, created_at, last_activity_at
+                user_agent, login_method, is_active, created_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
         """, new_session_id, user_id, tenant_id, expires_at,
             client_ip or current_session['ip_address'],
             user_agent or current_session['user_agent'],
